@@ -69,9 +69,10 @@ const make = Effect.gen(function* () {
       const rows = yield* sql<AccountRow>`SELECT * FROM accounts WHERE id = ${id}`;
       const account = rows[0];
       if (account === undefined) return yield* Effect.fail(`no account ${id}`);
-      // One statement, so a publisher cannot claim a draft between the check and the switch.
+      // One statement, so a publisher cannot claim a draft between the check and the switch. The
+      // new account's longer posts are unknown until X's composer shows them for it.
       const switched = yield* sql<{ id: number }>`
-        UPDATE settings SET current_account_id = ${id}, handle = ${account.handle}
+        UPDATE settings SET current_account_id = ${id}, handle = ${account.handle}, long_posts = NULL
         WHERE id = 1 AND current_account_id <> ${id} AND NOT EXISTS (
           SELECT 1 FROM drafts WHERE status = 'posting' AND account_id = settings.current_account_id
         )

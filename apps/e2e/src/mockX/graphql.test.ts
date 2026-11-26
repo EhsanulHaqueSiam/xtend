@@ -6,6 +6,7 @@ import {
   renderKnownFollowers,
   renderSpaceCaptions,
 } from "../../../desktop/src/xSession/engineBatch.ts";
+import { menuRows } from "./menus.ts";
 import { route } from "./pages.ts";
 import { createMockState } from "./state.ts";
 
@@ -209,4 +210,50 @@ it("answers X's Radar only with Premium, in X's Relay shapes, as the capture rea
     "postListQuery",
     "usePostCountQuery",
   ]);
+});
+
+it("answers X's create with its edit window, and an edit as the next version in X's chain, offered by X's own Edit row and composer", () => {
+  const state = createMockState();
+  const create = (variables: Record<string, unknown>) =>
+    renderEngineBatch(
+      "CreateTweet",
+      variables,
+      JSON.parse(JSON.stringify(state.write("CreateTweet", variables, "/compose/post"))),
+    ).posts[0]!;
+  const editRow = (id: string) => menuRows(state, `post:${id}`).find((r) => r.testid === "edit");
+
+  const first = create({ tweet_text: "first take" });
+  expect([first.edits, first.editsRemaining, first.editableUntil === null]).toEqual([
+    [first.postId],
+    5,
+    false,
+  ]);
+  // X's Edit post opens X's composer with the post in the route's state (mock X's page asks for
+  // it as `edit`): the post's text, and its Post reading Update.
+  expect(editRow(first.postId)).toMatchObject({
+    go: "/compose/post",
+    state: { previousTweetId: first.postId },
+  });
+  expect(route(state, `/compose/post?edit=${first.postId}`, "forYou").render([])).toMatch(
+    new RegExp(`first take.*data-edit="${first.postId}">Update<`),
+  );
+
+  const second = create({
+    tweet_text: "second take",
+    edit_options: { previous_tweet_id: first.postId },
+  });
+  expect(second).toMatchObject({
+    text: "second take",
+    edits: [first.postId, second.postId],
+    editsRemaining: 4,
+    editableUntil: first.editableUntil,
+  });
+  expect(state.presses.at(-1)).toMatchObject({ name: "CreateTweet", target: first.postId });
+  // The earlier version is X's history now: no Edit post on it, and its page says so.
+  expect([editRow(first.postId), editRow(second.postId)?.label]).toEqual([undefined, "Edit post"]);
+  expect(state.post(first.postId)?.edits).toEqual(second.edits);
+  // X's link by id alone goes to the post's own page, where the desktop opens its "...".
+  expect(route(state, `/i/web/status/${second.postId}`, "forYou").redirect).toBe(
+    `/${second.author.handle}/status/${second.postId}`,
+  );
 });

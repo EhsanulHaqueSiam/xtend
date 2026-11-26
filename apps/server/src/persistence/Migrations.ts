@@ -32,6 +32,7 @@ import Migration0028 from "./Migrations/028_FollowUpTriage.ts";
 import Migration0029 from "./Migrations/029_AssistBinaryPath.ts";
 import Migration0030 from "./Migrations/030_Devices.ts";
 import Migration0031 from "./Migrations/031_XSettings.ts";
+import Migration0032 from "./Migrations/032_LongPosts.ts";
 
 export const migrationEntries = [
   [1, "Observations", Migration0001],
@@ -65,6 +66,7 @@ export const migrationEntries = [
   [29, "AssistBinaryPath", Migration0029],
   [30, "Devices", Migration0030],
   [31, "XSettings", Migration0031],
+  [32, "LongPosts", Migration0032],
 ] as const;
 
 const run = Migrator.make({});

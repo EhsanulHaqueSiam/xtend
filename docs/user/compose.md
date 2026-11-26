@@ -27,14 +27,15 @@ is one toast with Undo. Failed drafts sit in Drafts, marked failed. Posted cards
 ## The thread
 
 A draft is one or more posts on a rail, each with its own `n/280` count in mono: amber in the
-last 20 characters, red past the limit. The post you are writing shows its tools: media, who
+last 20 characters, red past the limit. With X Premium the limit is 25,000, X's longer posts,
+once the desktop app has seen X's composer offer them; queued and scheduled posts use it too. The post you are writing shows its tools: media, who
 can reply, move up or down, remove, add below.
 
 - Paste plain text with blank lines between paragraphs and each paragraph becomes a post.
 - Up to four images or a video per post. Drag to reorder. Alt text cannot reach X yet.
 - A link to an x.com post as its own line becomes a quote. The quoted post shows as a card
   when the Library has it; otherwise the bare link, which is what X will get. The quote rides
-  on the first post and counts against its 280.
+  on the first post and counts against its limit.
 - **Options** holds the rest: a poll on the first post, who can reply to every post, seconds
   between thread posts.
 - **Choose audience** posts the thread's first post to one of your Communities, through your

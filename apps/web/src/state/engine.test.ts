@@ -1183,7 +1183,7 @@ it("lists a pinned post X also shows quoted, in X's entry order", () => {
   expect(at(state.lists, "profile:posts:5")).toEqual(["1", "2"]);
 });
 
-it("puts the user's new reply under the post it answers, and a new post on top of Home", () => {
+it("puts the user's new reply under the post it answers, a new post on top of Home, and an edit in its earlier version's place", () => {
   const thread = [post("1", "2026-10-30T00:00:00Z"), post("2", "2026-10-30T01:00:00Z")];
   let state = mergeBatch(
     emptyEngine,
@@ -1211,6 +1211,70 @@ it("puts the user's new reply under the post it answers, and a new post on top o
   expect(at(state.lists, "following")).toEqual(["10", "3"]);
   expect(at(state.lists, "profile:posts:1")).toEqual(["10"]);
   expect(at(showWaiting(state, "following").lists, "following")).toEqual(["10", "4", "3"]);
+  // X's answer to an edit names the versions before it: the new one takes their place, on Home,
+  // behind the pill and under the post the reply answers, never on top as a new post.
+  state = mergeBatch(
+    state,
+    batch("CreateTweet", [{ ...quote, postId: "11", edits: ["10", "11"] }]),
+  );
+  state = mergeBatch(state, batch("CreateTweet", [{ ...reply, postId: "12", edits: ["9", "12"] }]));
+  expect(at(state.lists, "following")).toEqual(["11", "3"]);
+  expect(at(state.lists, "profile:posts:1")).toEqual(["11"]);
+  expect(at(showWaiting(state, "following").lists, "following")).toEqual(["11", "4", "3"]);
+  expect(at(state.lists, "post:1")).toEqual(["1", "12", "2"]);
+  expect(state.posts.get("1")?.metrics.replies).toBe(1);
+  // An answer X sent before the edit, landing after it, lists the newest version in its place.
+  state = mergeBatch(
+    state,
+    batch("HomeLatestTimeline", [
+      post("10", "2026-10-31T01:00:00Z"),
+      post("3", "2026-10-30T02:00:00Z"),
+    ]),
+  );
+  state = mergeBatch(
+    state,
+    batch("TweetDetail", [...thread, { ...reply, edits: ["9"] }], {
+      key: "1",
+      order: ["1", "9", "2"],
+    }),
+  );
+  expect(at(showWaiting(state, "following").lists, "following")).toEqual(["11", "4", "3"]);
+  expect(at(state.lists, "post:1")).toEqual(["1", "12", "2"]);
+  // A second edit, then a late copy of the first edit (its history ends at 11) listing the
+  // original: X's ids grow, so every version still resolves to the newest, 13.
+  state = mergeBatch(
+    state,
+    batch("CreateTweet", [{ ...quote, postId: "13", edits: ["10", "11", "13"] }]),
+  );
+  state = mergeBatch(
+    state,
+    batch("HomeLatestTimeline", [
+      { ...quote, edits: ["10"] },
+      { ...quote, postId: "11", edits: ["10", "11"] },
+    ]),
+  );
+  expect(at(showWaiting(state, "following").lists, "following")).toEqual(["13", "4", "3"]);
+  // An answer naming a version the store never got (14) keeps the newest it has, then the
+  // newer one once X sends it.
+  const only13 = { ...quote, postId: "13", edits: ["10", "11", "13", "14"] };
+  const shown = at(state.lists, "following");
+  state = mergeBatch(state, batch("HomeLatestTimeline", [only13], { cursor: "next" }));
+  expect(at(state.lists, "following").map((id) => postOn(state, "following", id)?.postId)).toEqual(
+    shown,
+  );
+  // 14 arrives without its history (X left the edit out of this answer): known as 13's newer
+  // version all the same, it takes the place, and no alias sends it back to 13.
+  state = mergeBatch(
+    state,
+    batch("TweetDetail", [{ ...only13, postId: "14", edits: [] }], { key: "14" }),
+  );
+  expect(at(state.lists, "following")).toEqual(shown.map((id) => (id === "13" ? "14" : id)));
+  expect([state.latest.get("14"), state.latest.get("10")]).toEqual([undefined, "14"]);
+  // An answer that tells nothing new keeps the same versions.
+  expect(
+    mergeBatch(state, batch("TweetDetail", [{ ...quote, postId: "11", edits: ["10", "11"] }]))
+      .latest,
+  ).toBe(state.latest);
 });
 
 it("keeps dismissed trends hidden across stale captures of their tab, reconciles removal, and restores on Undo", () => {
@@ -1539,4 +1603,69 @@ it("keeps the user's own X Articles: each list as X last sent it, and a body X s
     state.xArticles.Published,
     state.xArticles.byId.get("1")?.blocks,
   ]).toEqual([["2", "1"], [], body]);
+});
+
+it("swaps an edited post's new version in once, everywhere: its lists, its place in a self-thread, its open thread", () => {
+  const at0 = "2026-11-26T09:00:00Z";
+  const conversation = { id: "conv-9", index: 0, size: 2 };
+  let state = mergeBatch(
+    emptyEngine,
+    batch("HomeLatestTimeline", [{ ...post("701", at0), conversation }, post("500", at0)], {
+      order: ["701", "500"],
+    }),
+  );
+  state = mergeBatch(
+    state,
+    batch("TweetDetail", [post("701", at0), { ...post("600", at0), replyToId: "701" }], {
+      key: "701:Recency",
+      order: ["701", "600"],
+    }),
+  );
+  state = mergeBatch(state, batch("CreateTweet", [{ ...post("703", at0), edits: ["701", "703"] }]));
+  // Home keeps its order and the thread connector the original had there.
+  expect(at(state.lists, "following")).toEqual(["703", "500"]);
+  expect(postOn(state, "following", "703")?.conversation).toEqual(conversation);
+  // The open thread is the new version's now, its replies with it.
+  expect(at(state.lists, postSurface("703", "Recency"))).toEqual(["703", "600"]);
+  expect(at(state.lists, postSurface("701", "Recency"))).toEqual([]);
+  // A late answer for the original's page lands in the new version's thread.
+  state = mergeBatch(
+    state,
+    batch("TweetDetail", [post("701", at0), { ...post("601", at0), replyToId: "701" }], {
+      key: "701",
+      order: ["701", "601"],
+    }),
+  );
+  expect(at(state.lists, postSurface("703", "Relevance"))).toEqual(["703", "601"]);
+  // A reply after the edit shows in the open thread.
+  state = mergeBatch(state, batch("CreateTweet", [{ ...post("800", at0), replyToId: "703" }]));
+  expect(at(state.lists, postSurface("703", "Recency"))).toEqual(["703", "800", "600"]);
+});
+
+it("swaps a version in without a phantom pill, merges both threads, and puts a reply to the original under the new one", () => {
+  const t = "2026-11-26T09:00:00Z";
+  let state = mergeBatch(
+    emptyEngine,
+    batch("HomeLatestTimeline", [post("701", t)], { order: ["701"] }),
+  );
+  // X's newer page brings 703 (no history yet) behind the pill; both versions have threads.
+  state = mergeBatch(
+    state,
+    batch("HomeLatestTimeline", [post("703", t), post("701", t)], { order: ["703", "701"] }),
+  );
+  const reply = (id: string, to: string) => ({ ...post(id, t), replyToId: to });
+  state = mergeBatch(
+    state,
+    batch("TweetDetail", [post("701", t), reply("600", "701")], { key: "701" }),
+  );
+  state = mergeBatch(
+    state,
+    batch("TweetDetail", [post("703", t), reply("900", "703")], { key: "703" }),
+  );
+  state = mergeBatch(state, batch("CreateTweet", [{ ...post("703", t), edits: ["701", "703"] }]));
+  expect([at(state.lists, "following"), at(state.waiting, "following")]).toEqual([["703"], []]);
+  expect(at(state.lists, postSurface("703"))).toEqual(["703", "900", "600"]);
+  state = mergeBatch(state, batch("CreateTweet", [reply("950", "701")]));
+  expect(at(state.lists, postSurface("703"))).toEqual(["703", "950", "900", "600"]);
+  expect(state.posts.get("703")?.metrics.replies).toBe(1);
 });

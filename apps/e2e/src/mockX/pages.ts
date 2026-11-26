@@ -243,8 +243,8 @@ const gifTile = (g: EngineGif) =>
  * X's editor in its box: X caps the box's height (scrolling past it) unless its own gate lets the
  * account bold and italicize, which is how Xtend tells, as live X may never send GetUserClaims.
  */
-const editor = (state: MockState, placeholder: string) =>
-  `<div data-testid="tweetTextarea_0RichTextInputContainer" style="${state.formats ? "min-height: 24px" : "max-height: 720px; overflow-y: auto"}"><div data-testid="tweetTextarea_0" contenteditable="true" role="textbox" aria-label="Post text" data-placeholder="${placeholder}"></div></div>`;
+const editor = (state: MockState, placeholder: string, text = "") =>
+  `<div data-testid="tweetTextarea_0RichTextInputContainer" style="${state.formats ? "min-height: 24px" : "max-height: 720px; overflow-y: auto"}"><div data-testid="tweetTextarea_0" contenteditable="true" role="textbox" aria-label="Post text" data-placeholder="${placeholder}">${esc(text)}</div></div>`;
 
 /** X's composer toolbar: its GIF button opens X's GIF search, then `post` (Post or Reply). */
 // X's audience button ("Everyone"), as live only on /compose/post, never Home's composer; kept out
@@ -1654,6 +1654,9 @@ export function route(
         ),
     };
   }
+  // X's Edit post opens the composer with the post's text, its Post reading Update (bundle.Compose:
+  // isEdit), and no audience to pick.
+  const editing = lower === "compose" ? state.post(q.get("edit") ?? "") : undefined;
   if (lower === "compose")
     return {
       title: "Compose new post / X",
@@ -1661,9 +1664,22 @@ export function route(
       render: () =>
         routeDialog(
           "",
-          `${editor(state, "What's happening?")}${toolBar('<button data-testid="tweetButton">Post</button>', true)}`,
+          editing === undefined
+            ? `${editor(state, "What's happening?")}${toolBar('<button data-testid="tweetButton">Post</button>', true)}`
+            : `${editor(state, "What's happening?", editing.text)}${toolBar(`<button data-testid="tweetButton" data-edit="${editing.postId}">Update</button>`)}`,
         ),
     };
+  // x.com/i/web/status/<id>, X's link to a post by its id alone, goes to the post's own page.
+  if (lower === "i" && second === "web" && third === "status" && fourth !== undefined) {
+    const p = state.post(fourth);
+    if (p !== undefined)
+      return {
+        title: "X",
+        requests: [],
+        redirect: `/${p.author.handle}/status/${p.postId}`,
+        render: () => "",
+      };
+  }
 
   if (first !== "" && !RESERVED.has(lower)) {
     const u = state.byHandle(first);

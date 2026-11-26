@@ -320,9 +320,12 @@ const SCRIPT = String.raw`
     if (path.startsWith("/i/spaces/")) cache.delete(key);
     // So do X's Articles pages: the editor and the lists read the Article afresh.
     if (path.startsWith("/compose/articles")) cache.delete(key);
+    // X's composer opens anew each time, for the post its route's state names when it edits one.
+    if (path.startsWith("/compose/post")) cache.delete(key);
+    const editing = path === "/compose/post" ? history.state?.state?.previousTweetId : undefined;
     let entry = cache.get(key);
     if (!entry) {
-      const view = await load(path);
+      const view = await load(editing ? path + "?edit=" + editing : path);
       if (mine !== token) return;
       // X's Redirect: the path it sends this one to replaces it.
       if (view.redirect) {
@@ -415,9 +418,11 @@ const SCRIPT = String.raw`
   });
   addEventListener("popstate", () => void show());
 
-  const go = (path, replace) => {
-    if (replace) history.replaceState(null, "", path);
-    else history.pushState(null, "", path);
+  // X's router keeps a route's state beside its key, as its history library does.
+  const go = (path, replace, state) => {
+    const entry = state ? { key: "mockx", state } : null;
+    if (replace) history.replaceState(entry, "", path);
+    else history.pushState(entry, "", path);
     void show();
   };
 
@@ -534,7 +539,7 @@ const SCRIPT = String.raw`
     if (step.community) turnJoin(step.community.id, step.community.label);
     if (step.toast) toast(step.toast);
     if (step.dialog) dialog(step.dialog);
-    if (step.go) go(step.go, false);
+    if (step.go) go(step.go, false, step.state);
     if (step.replace) go(step.replace, true);
   }
 
@@ -729,7 +734,8 @@ const SCRIPT = String.raw`
         if (types.length > 0) tags.push({ from_index: at, to_index: at + length, richtext_types: types });
         at += length;
       }
-      const op = tags.length > 0 ? "CreateNoteTweet" : "CreateTweet";
+      // Past 280 (Premium's longer posts) X sends a long post too.
+      const op = tags.length > 0 || [...text].length > 280 ? "CreateNoteTweet" : "CreateTweet";
       // A Community audience rides the post as X's composer sends it, with its share toggle.
       const to = audience === null ? {} : {
         conversation_control: { mode: "Community" },
@@ -737,7 +743,9 @@ const SCRIPT = String.raw`
         broadcast: document.querySelector("[data-share] input")?.checked === true,
       };
       audience = null;
-      const variables = { tweet_text: text, ...to, ...(tags.length > 0 ? { richtext_options: { richtext_tags: tags } } : {}) };
+      // An edit is X's create naming the version it replaces.
+      const edit = el.dataset.edit ? { edit_options: { previous_tweet_id: el.dataset.edit } } : {};
+      const variables = { tweet_text: text, ...to, ...edit, ...(tags.length > 0 ? { richtext_options: { richtext_tags: tags } } : {}) };
       if (text.trim() !== "") void post("/i/api/graphql/" + window.__mockHash[op] + "/" + op, { variables }).then(() => history.back());
       return;
     }

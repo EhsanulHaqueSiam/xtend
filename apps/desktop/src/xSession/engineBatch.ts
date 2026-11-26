@@ -458,6 +458,7 @@ function readEnginePost(
   );
   const text = shownText(post.text, replyingTo, hidden);
   const styles = readStyles(tweet, post.text, text);
+  const edits = readEdits(tweet);
   return {
     ...(styles.length === 0 ? {} : { styles }),
     translation: readTranslation(tweet, replyingTo, hidden),
@@ -481,7 +482,8 @@ function readEnginePost(
     bookmarked: legacy.bookmarked === true,
     // Filled in by the batch, which sees the timeline's modules.
     conversation: null,
-    ...readEdits(tweet),
+    ...edits,
+    ...readEditText(tweet, legacy, edits.editsRemaining, { text, styles }),
     aiGenerated:
       record(record(tweet.content_disclosure).ai_generated_disclosure).has_ai_generated_media ===
       true,
@@ -506,6 +508,46 @@ function readStyles(tweet: Json, full: string, shown: string): ReadonlyArray<Tex
         : [],
     );
   });
+}
+
+/**
+ * What X's Edit post fills its composer with (loader.TweetCurationActionMenu): a long post's whole
+ * note, else the text in X's display range, link and media links expanded, bold and italic moved
+ * with them. Only while X allows an edit, and only where it differs from the shown text.
+ */
+function readEditText(
+  tweet: Json,
+  legacy: Json,
+  editsRemaining: number | null,
+  shown: { readonly text: string; readonly styles: ReadonlyArray<TextStyle> },
+): Pick<EnginePost, "edit"> {
+  if (editsRemaining === null || editsRemaining <= 0) return {};
+  const note = asString(result(record(tweet.note_tweet).note_tweet_results).text);
+  const range = arr(legacy.display_text_range);
+  // X's display range counts code points of the text X sent, before it is unescaped.
+  let text = (
+    note ??
+    [...(asString(legacy.full_text) ?? "")]
+      .slice(asNumber(range[0]), asNumber(range[1]) || undefined)
+      .join("")
+  )
+    .replaceAll("&lt;", "<")
+    .replaceAll("&gt;", ">")
+    .replaceAll("&amp;", "&");
+  let styles = note === undefined ? [] : readStyles(tweet, text, text);
+  const media = arr(record(legacy.extended_entities).media);
+  for (const link of [...arr(entitySource(tweet, legacy).urls), ...media]) {
+    const url = asString(record(link).url);
+    const expanded = asString(record(link).expanded_url);
+    const at = url === undefined ? -1 : text.indexOf(url);
+    if (url === undefined || expanded === undefined || at === -1) continue;
+    const end = at + url.length;
+    const move = (i: number) => (i >= end ? i + expanded.length - url.length : i);
+    text = text.slice(0, at) + expanded + text.slice(end);
+    styles = styles.map((s) => ({ ...s, start: move(s.start), end: move(s.end) }));
+  }
+  const same = text === shown.text && JSON.stringify(styles) === JSON.stringify(shown.styles);
+  return same ? {} : { edit: { text, styles } };
 }
 
 /** X's Grok translation of a post, trimmed the way the original's text is. */

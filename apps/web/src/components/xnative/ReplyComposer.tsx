@@ -1,11 +1,12 @@
 import { useAtomSet } from "@effect/atom-react";
-import type { EnginePost, PostRead } from "@xtend/contracts";
+import { charCount, type EnginePost, type PostRead } from "@xtend/contracts";
 import * as Exit from "effect/Exit";
 import { useEffect, useRef, useState } from "react";
 
 import { cn } from "../../lib/utils";
 import { draftReplyAtom, readPostAtom, sendReplyAtom } from "../../state/engage";
 import { toXPost } from "../../state/engine";
+import { usePostLimit } from "../../state/settings";
 import { failText } from "../compose/AssistPanel";
 import { toastAtom } from "../ui/toast";
 import { useOwnAvatar } from "./HomeComposer";
@@ -31,6 +32,7 @@ export function ReplyComposer({
   readonly thread: ReadonlyArray<string>;
   readonly onSent: () => void;
 }) {
+  const limit = usePostLimit();
   const readPost = useAtomSet(readPostAtom(post.postId), { mode: "promiseExit" });
   const help = useAtomSet(draftReplyAtom(post.postId), { mode: "promiseExit" });
   const send = useAtomSet(sendReplyAtom(post.postId), { mode: "promiseExit" });
@@ -85,7 +87,8 @@ export function ReplyComposer({
     onSent();
   };
 
-  const canReply = !busy && text.trim() !== "" && text.length <= 280;
+  const length = charCount(text);
+  const canReply = !busy && text.trim() !== "" && length <= limit;
   return (
     <section
       data-x="reply"
@@ -149,7 +152,7 @@ export function ReplyComposer({
             ))}
           </div>
           <span className="ml-auto font-mono text-2xs text-muted-foreground tabular-nums">
-            {text.length}/280 · free · your session · ⌘↵
+            {length}/{limit.toLocaleString("en")} · free · your session · ⌘↵
           </span>
         </div>
 

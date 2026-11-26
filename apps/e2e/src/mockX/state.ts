@@ -1267,6 +1267,7 @@ export function createMockState(options: MockOptions = {}) {
         "entity_id",
       ) ??
       s(input, "bookmark_collection_id") ??
+      s((input.edit_options as Json | undefined) ?? {}, "previous_tweet_id") ??
       null;
     presses.push({ kind: "write", name, target: id, path });
     const tweet = s(input, "tweet_id") ?? s(input, "source_tweet_id") ?? "";
@@ -1371,10 +1372,26 @@ export function createMockState(options: MockOptions = {}) {
             style,
           })),
         );
-        const created = make(0, {
+        // An edit names the version it replaces, whose media, quote and reply the new one keeps.
+        const before = post(
+          s((input.edit_options as Json | undefined) ?? {}, "previous_tweet_id") ?? "",
+        );
+        const now = Date.now();
+        const made = make(0, {
           ...(styles.length === 0 ? {} : { styles }),
+          ...(before === undefined
+            ? {}
+            : {
+                media: before.media,
+                hasMedia: before.hasMedia,
+                quotedId: before.quotedId,
+                replyToId: before.replyToId,
+                replyingTo: before.replyingTo,
+              }),
           text,
-          createdAt: new Date().toISOString(),
+          // Mock X reads no links or mentions out of what was typed.
+          entities: { urls: [], mentions: [], hashtags: [], cashtags: [] },
+          createdAt: new Date(now).toISOString(),
           author: {
             userId: viewer.userId!,
             handle: viewer.handle,
@@ -1385,6 +1402,22 @@ export function createMockState(options: MockOptions = {}) {
           avatarUrl: viewer.avatarUrl,
           metrics: { views: 0, likes: 0, reposts: 0, replies: 0, quotes: 0, bookmarks: 0 },
         });
+        // X's edit_control: five edits within an hour of posting, every version's id in order.
+        const created: EnginePost = {
+          ...made,
+          edits: [
+            ...(before === undefined
+              ? []
+              : before.edits.length > 0
+                ? before.edits
+                : [before.postId]),
+            made.postId,
+          ],
+          editsRemaining: before === undefined ? 5 : Math.max(0, (before.editsRemaining ?? 1) - 1),
+          editableUntil: before?.editableUntil ?? new Date(now + 3_600_000).toISOString(),
+        };
+        basePosts.set(created.postId, created);
+        if (before !== undefined) changePost(before.postId, () => ({ edits: created.edits }));
         const { __typename: _, ...result } = encodeTweet(created, liveUsers());
         return name === "CreateNoteTweet"
           ? { data: { notetweet_create: { tweet_results: { result } } } }

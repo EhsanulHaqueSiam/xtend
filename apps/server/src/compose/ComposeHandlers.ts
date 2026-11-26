@@ -36,6 +36,7 @@ export const layerHandlers = ComposeRpcGroup.toLayer(
     const media = yield* Media.Media;
     const articles = yield* Articles.Articles;
     const bestTime = yield* BestTime.BestTime;
+    const session = yield* SessionPosting.SessionPosting;
     return ComposeRpcGroup.of({
       [Compose_METHODS.draftsList]: () => Effect.map(drafts.list, (list) => ({ drafts: list })),
       [Compose_METHODS.draftCreate]: (patch) => drafts.create(patch),
@@ -51,6 +52,7 @@ export const layerHandlers = ComposeRpcGroup.toLayer(
           ...(community === undefined ? {} : { community }),
           ...(caption === undefined ? {} : { caption }),
         }),
+      [Compose_METHODS.editPost]: (input) => session.edit(input),
       [Compose_METHODS.assistHook]: ({ blocks, tone }) => assist.improveHook(blocks, tone),
       [Compose_METHODS.assistRewrite]: ({ text, tone }) => assist.rewrite(text, tone),
       [Compose_METHODS.assistThreadIdeas]: ({ topic, tone }) => assist.threadIdeas(topic, tone),

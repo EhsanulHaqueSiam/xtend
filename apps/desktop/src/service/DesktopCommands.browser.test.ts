@@ -2,7 +2,7 @@ import type { DesktopCommand } from "@xtend/contracts";
 import { expect, it, vi } from "vite-plus/test";
 
 import { fakeTimers } from "../testing/fakeTimers.ts";
-import { postThroughComposer } from "./DesktopCommands.ts";
+import { editCreates, editThroughComposer, postThroughComposer } from "./DesktopCommands.ts";
 
 // Deadlines count from this fixed instant on the faked clock.
 const T0 = Date.parse("2026-11-02T12:00:00.000Z");
@@ -728,4 +728,265 @@ it("reads a Community's name as X's page shows it, so an & in it matches", async
     }),
   );
   expect([result, composer().audience]).toEqual(["777", "Design & Code"]);
+});
+
+interface EditPage {
+  /** X's "..." on the post lists Edit post (inside X's hour, edits left). */
+  readonly editable: boolean;
+  /** The post's last edit: X confirms Update in a sheet of its own. */
+  readonly lastEdit: boolean;
+  /** Another post's menu, with its own Edit post, opens over the post's as Xtend's engine reads it. */
+  readonly competing?: boolean;
+  /** The post X's composer edits once the row is pressed: someone else's press moved it. */
+  readonly editing?: string;
+  /** X's composer moves on to another post's edit before X's last-edit sheet. */
+  readonly movesBeforeConfirm?: boolean;
+  /** A layer of X's sits on Update, so a press there would land on it. */
+  readonly coveredUpdate?: boolean;
+}
+
+/**
+ * X's page for the user's post 701 and, after it, a reply quoting it (its time links to 701 too).
+ * The post's "..." opens the menu its aria-controls names, listing Edit post when `editable`; the
+ * row opens X's composer on /compose/post, the post's id in the route's state as X's history keeps
+ * it, with the post's text. Update sends at once, or after X's confirm on the last edit.
+ */
+function fakeEditPage(log: Array<string>, creates: ReturnType<typeof editCreates>, page: EditPage) {
+  // The post's page fresh from its load: no menu hold left by an earlier edit.
+  Reflect.deleteProperty(window, "__xtendMenuQueue");
+  history.replaceState(null, "", "/you/status/701");
+  document.body.innerHTML = `
+<div id="react-root">
+  <article><a href="/you/status/701"><time>1m</time></a><button data-testid="caret" data-of="701" aria-haspopup="menu" aria-expanded="false">…</button><div>first take</div></article>
+  <article><a href="/ann/status/702"><time>1m</time></a><button data-testid="caret" data-of="702" aria-haspopup="menu" aria-expanded="false">…</button><div role="link"><a href="/you/status/701"><time>1m</time></a></div></article>
+</div>
+<div id="layers"></div>`;
+  const root = document.getElementById("react-root");
+  const layers = document.getElementById("layers")!;
+  const editingAt = (postId: string) =>
+    history.replaceState({ key: "k", state: { previousTweetId: postId } }, "", "/compose/post");
+  const menu = (of: string) =>
+    `<div role="menu" id="menu-${of}">${page.editable ? `<div role="menuitem" data-testid="edit" data-of="${of}">Edit post</div>` : ""}<div role="menuitem">Pin to your profile</div></div>`;
+  const send = () => {
+    const text = layers.querySelector('[data-testid="tweetTextarea_0"]')?.textContent;
+    log.push(`create ${text}`);
+    // X's create for what its composer edits (an earlier post's retry beside it), as the capture
+    // hands them over, then X's answers.
+    const previous = (history.state as { state: { previousTweetId: string } }).state
+      .previousTweetId;
+    const body = (variables: object) => Promise.resolve(JSON.stringify({ variables }));
+    creates.request("r0", body({ tweet_text: "Earlier post" }));
+    creates.request(
+      "r1",
+      body({ tweet_text: text, edit_options: { previous_tweet_id: previous } }),
+    );
+    void Promise.resolve().then(() => {
+      creates.answered("r0", "900");
+      creates.answered("r1", "703");
+    });
+  };
+  document.body.addEventListener("click", (event) => {
+    if (root?.isConnected !== true) return;
+    const target = event.target as HTMLElement;
+    const testid = target.closest<HTMLElement>("[data-testid]")?.dataset.testid;
+    if (testid === "caret") {
+      const of = target.dataset.of!;
+      log.push(`menu ${of}`);
+      target.setAttribute("aria-expanded", "true");
+      target.setAttribute("aria-controls", `menu-${of}`);
+      layers.innerHTML = menu(of) + (page.competing === true ? menu("702") : "");
+    } else if (testid === "edit") {
+      log.push(`edit row ${target.dataset.of}`);
+      editingAt(page.editing ?? target.dataset.of!);
+      const cover =
+        page.coveredUpdate === true ? '<div style="position:absolute;inset:0"></div>' : "";
+      layers.innerHTML = `<div role="dialog"><div data-testid="tweetTextarea_0" contenteditable="true" role="textbox" style="width:200px;height:24px">first take</div><div style="position:relative;width:fit-content"><button data-testid="tweetButton">Update</button>${cover}</div></div>`;
+    } else if (testid === "tweetButton") {
+      log.push("press Update");
+      if (!page.lastEdit) return send();
+      if (page.movesBeforeConfirm === true) editingAt("702");
+      layers.insertAdjacentHTML(
+        "beforeend",
+        `<div role="alertdialog"><h1>This is your last edit</h1><button data-testid="confirmationSheetConfirm">Update</button></div>`,
+      );
+    } else if (testid === "confirmationSheetConfirm") {
+      log.push("confirm Update");
+      send();
+    }
+  });
+}
+
+type Cdp = (method: string, params?: Record<string, unknown>) => Promise<unknown>;
+
+/** A DevTools answer the edit gets only `ms` after it asked, on the faked clock. */
+const later = (answer: Promise<unknown>, ms: number) => {
+  const late = Promise.withResolvers<unknown>();
+  setTimeout(() => void answer.then(late.resolve), ms);
+  return late.promise;
+};
+
+/** The edit on the fake page; `wrap` plays a slow or silent DevTools over the page's own. */
+const edit = async (
+  page: EditPage,
+  { allowed = async () => true, wrap = (cdp: Cdp) => cdp } = {},
+) => {
+  using _timers = fakeTimers({ now: T0 });
+  const start = location.href;
+  const log: Array<string> = [];
+  const loads: Array<string> = [];
+  const creates = editCreates();
+  fakeEditPage(log, creates, page);
+  const editing = editThroughComposer(
+    { loadURL: async (url: string) => void loads.push(url) },
+    wrap(domCdp(log)),
+    { type: "sessionEditPost", postId: "701", text: "second take", deadline: T0 + 60_000 },
+    creates,
+    T0 + 60_000,
+    allowed,
+  ).catch((error: unknown) => error);
+  await vi.runAllTimersAsync();
+  history.replaceState(null, "", start);
+  return { log, loads, result: await editing };
+};
+
+it("edits the post through the Edit row of the menu its own press opened, though another opens over it, and X's confirm on the last edit", async () => {
+  const { log, result } = await edit({ editable: true, lastEdit: true, competing: true });
+  // X's id for this edit, not for the creates X answered before it.
+  expect(result).toBe("703");
+  // The post's own "...", never the quoting reply's; its own menu's row; the new text in place of
+  // X's, not after it.
+  expect(log).toEqual([
+    "menu 701",
+    "edit row 701",
+    "type second take",
+    "press Update",
+    "confirm Update",
+    "create second take",
+  ]);
+});
+
+it("refuses untouched when X offers no Edit post on the post, and never presses Update", async () => {
+  const { log, result } = await edit({ editable: false, lastEdit: false });
+  expect(result).toMatchObject({
+    message:
+      "X offers no Edit post on it now (an hour after posting, 5 edits); the post was not changed",
+    notAttempted: true,
+  });
+  expect(log).toEqual(["menu 701"]);
+});
+
+it("presses neither Update nor X's last-edit confirm unless X's composer is editing the post and session actions are still on", async () => {
+  const other = await edit({ editable: true, lastEdit: false, editing: "702" });
+  expect(other.result).toMatchObject({
+    message: "x.com's composer is not editing this post; the post was not changed",
+    notAttempted: true,
+  });
+  expect(other.log).toEqual(["menu 701", "edit row 701"]);
+
+  const moved = await edit({ editable: true, lastEdit: true, movesBeforeConfirm: true });
+  expect(moved.result).toMatchObject({
+    message: "x.com's composer is not editing this post; the post was not changed",
+    notAttempted: true,
+  });
+  expect(moved.log).not.toContain("confirm Update");
+
+  // Turned off while the edit ran (the runner asked before it started): asked again at the press.
+  const off = await edit({ editable: true, lastEdit: false }, { allowed: async () => false });
+  expect(off.result).toMatchObject({
+    message: "session posting is off in Settings; the post was not changed",
+    notAttempted: true,
+  });
+  expect(off.log).not.toContain("press Update");
+
+  // The setting's answer came only after the deadline, or a layer covers Update: no press.
+  const slow = () => {
+    // On the faked clock, a minute past the edit's deadline.
+    const answer = Promise.withResolvers<boolean>();
+    setTimeout(() => answer.resolve(true), 120_000);
+    return answer.promise;
+  };
+  for (const late of [
+    await edit({ editable: true, lastEdit: false }, { allowed: slow }),
+    await edit({ editable: true, lastEdit: false, coveredUpdate: true }),
+  ]) {
+    expect(late.result).toMatchObject({ notAttempted: true });
+    expect(late.log).not.toContain("press Update");
+  }
+});
+
+it("ends by the deadline whatever DevTools does: a late answer lets no input go, a press that may have gone says so, and X's page loads again", async () => {
+  const PAGE = "https://x.com/i/web/status/701";
+  // The first box asked for (the post's "...") comes after the deadline: nothing is pressed.
+  let boxes = 0;
+  const lateBox = await edit(
+    { editable: true, lastEdit: false },
+    {
+      wrap: (cdp) => (method, params) =>
+        method === "DOM.getBoxModel" && boxes++ === 0
+          ? later(cdp(method, params), 70_000)
+          : cdp(method, params),
+    },
+  );
+  expect(lateBox.result).toMatchObject({ notAttempted: true });
+  expect(lateBox.log).toEqual([]);
+  expect(lateBox.loads).toEqual([PAGE, PAGE]);
+
+  // The same, but the user took X to Explore meanwhile: X stays where they put it.
+  let asked = 0;
+  const moved = await edit(
+    { editable: true, lastEdit: false },
+    {
+      wrap: (cdp) => (method, params) => {
+        if (method !== "DOM.getBoxModel" || asked++ > 0) return cdp(method, params);
+        history.replaceState(null, "", "/explore");
+        return later(cdp(method, params), 70_000);
+      },
+    },
+  );
+  expect(moved.result).toMatchObject({ notAttempted: true });
+  expect(moved.loads).toEqual([PAGE]);
+
+  // DevTools stops answering while the composer is open: refused untouched, the queue moves on.
+  let opened = false;
+  const silent = await edit(
+    { editable: true, lastEdit: false },
+    {
+      wrap: (cdp) => (method, params) => {
+        if (method === "DOM.getBoxModel" && document.querySelector('[role="dialog"]'))
+          opened = true;
+        return opened ? new Promise<unknown>(() => {}) : cdp(method, params);
+      },
+    },
+  );
+  expect(silent.result).toMatchObject({ notAttempted: true });
+  expect(silent.log).not.toContain("press Update");
+  expect(silent.loads).toEqual([PAGE, PAGE]);
+
+  // X's page acks the press on Update only after the deadline: it may have gone through. Its
+  // move off Update is never acked either; the release still goes.
+  const sent: Array<string> = [];
+  const slow = await edit(
+    { editable: true, lastEdit: false },
+    {
+      wrap: (cdp) => (method, params) => {
+        if (params?.type === "mouseMoved" || params?.type === "mouseReleased")
+          sent.push(`${String(params.type)} ${String(params.x)},${String(params.y)}`);
+        if (params?.type === "mouseMoved") return new Promise<unknown>(() => {});
+        return params?.type === "mousePressed" &&
+          document
+            .elementFromPoint(Number(params.x), Number(params.y))
+            ?.closest('[data-testid="tweetButton"]')
+          ? later(cdp(method, params), 120_000)
+          : cdp(method, params);
+      },
+    },
+  );
+  expect(sent.slice(-2)).toEqual(["mouseMoved 0,0", "mouseReleased 0,0"]);
+  expect([
+    (slow.result as Error).message,
+    (slow.result as { notAttempted?: boolean }).notAttempted,
+  ]).toEqual(["the edit ran out of its time after its press; it may have gone through", undefined]);
+  expect(slow.loads).toEqual([PAGE, PAGE]);
+  // The press held down is let go off Update, so it never completes into a click there.
+  expect(slow.log.filter((l) => l === "press Update" || l.startsWith("create"))).toEqual([]);
 });

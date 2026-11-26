@@ -77,6 +77,10 @@ export const MEDIA_MAX_IMAGES = 4;
 
 /** X's limit on a post's weighted length (`charCount`). */
 export const POST_LIMIT = 280;
+/** X's limit for an account with Premium's longer posts. */
+export const LONG_POST_LIMIT = 25_000;
+/** The limit for an account X does (`true`) or does not let write longer posts. */
+export const postLimit = (longPosts: boolean) => (longPosts ? LONG_POST_LIMIT : POST_LIMIT);
 
 // The contract's link rule, so the counter and the price agree with what the service charges.
 const LINK = new RegExp(LINK_PATTERN.source, "gi");
@@ -131,6 +135,17 @@ export const PostCommunity = Schema.Struct({
   shareWithFollowers: Schema.Boolean,
 });
 export type PostCommunity = typeof PostCommunity.Type;
+
+/**
+ * The user's own post as their click on Update leaves it: X Premium's Edit post replaces its text
+ * (and bold and italic) through X's own composer, within X's hour and five edits.
+ */
+export const PostEdit = Schema.Struct({
+  postId: XId,
+  text: Schema.String,
+  styles: Schema.optional(Schema.Array(TextStyle)),
+});
+export type PostEdit = typeof PostEdit.Type;
 
 /** What the editor can change. Everything else on a Draft is owned by the service. */
 export const DraftPatch = Schema.Struct({
@@ -267,6 +282,7 @@ export const Compose_METHODS = {
   draftUpdate: "compose.draftUpdate",
   draftDelete: "compose.draftDelete",
   postNow: "compose.postNow",
+  editPost: "compose.editPost",
   assistHook: "compose.assistHook",
   assistRewrite: "compose.assistRewrite",
   assistThreadIdeas: "compose.assistThreadIdeas",
@@ -320,6 +336,15 @@ export const ComposeRpcGroup = RpcGroup.make(
       caption: Schema.optional(Schema.String),
     }),
     success: Draft,
+    error: ComposeError,
+  }),
+  /**
+   * Free, through the user's session only. Answers the id X gives the new version, or null when
+   * X's Update was pressed but X's answer never came: X may have saved it. An error changed nothing.
+   */
+  Rpc.make(Compose_METHODS.editPost, {
+    payload: PostEdit,
+    success: Schema.Struct({ postId: Schema.NullOr(XId) }),
     error: ComposeError,
   }),
   Rpc.make(Compose_METHODS.assistHook, {

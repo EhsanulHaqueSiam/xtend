@@ -7,7 +7,7 @@ import {
   hasLink,
   type PickedGif,
   type PostCommunity,
-  POST_LIMIT,
+  postLimit,
   toPasteHtml,
   type XApiError,
   XId,
@@ -65,7 +65,7 @@ const mayHavePosted = (e: ComposeError | XApiError | DesktopUnavailableError) =>
  * Why X would refuse the draft, found before the first post goes out so a thread never stops
  * halfway. `gif`: the click picked one for the first post; `community`, the first post's audience.
  */
-const refusal = (draft: Draft, gif: boolean, community: boolean): string | null => {
+const refusal = (draft: Draft, gif: boolean, community: boolean, limit: number): string | null => {
   if (draft.kind === "article") return articleBlocker(draft.title, draft.body);
   const hasMedia = (i: number) => draft.media.some((m) => m.blockIndex === i) || (i === 0 && gif);
   // A post may be only media or only the quote link, but not nothing.
@@ -73,8 +73,8 @@ const refusal = (draft: Draft, gif: boolean, community: boolean): string | null 
   if (draft.blocks.length === 0 || (blank !== -1 && draft.blocks.length === 1))
     return "Nothing to post";
   if (blank !== -1) return `Post ${blank + 1} is empty`;
-  const long = draft.blocks.findIndex((_, i) => charCount(blockText(draft, i)) > POST_LIMIT);
-  if (long !== -1) return `Post ${long + 1} is over ${POST_LIMIT} characters`;
+  const long = draft.blocks.findIndex((_, i) => charCount(blockText(draft, i)) > limit);
+  if (long !== -1) return `Post ${long + 1} is over ${limit.toLocaleString("en")} characters`;
   if (gif && draft.media.some((m) => m.blockIndex === 0))
     return "A GIF cannot share the first post with media";
   // X's composer offers no audience on a reply, and a Community decides who replies to its posts.
@@ -299,7 +299,17 @@ const make = Effect.gen(function* () {
     // Read after the claim so the editor's last autosave is what goes out.
     const draft = yield* drafts.get(id);
     const attempt = draft.attempts + 1;
-    const failure = refusal(draft, options.gif !== undefined, options.community !== undefined);
+    // Longer posts only once X's composer showed them for this account (Premium).
+    const longPosts = yield* settings.get.pipe(
+      Effect.map((s) => s.longPosts === true),
+      Effect.orElseSucceed(() => false),
+    );
+    const failure = refusal(
+      draft,
+      options.gif !== undefined,
+      options.community !== undefined,
+      postLimit(longPosts),
+    );
     const result =
       failure !== null
         ? { error: failure, ids: [] as ReadonlyArray<string>, retryable: false }
