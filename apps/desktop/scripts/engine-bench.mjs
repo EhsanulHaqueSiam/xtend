@@ -1627,6 +1627,47 @@ const benchmarks = [
     },
   ],
   [
+    "Analyze X audience Active times and X live: the heatmap's lit hours and the broadcasts are X's page's, or without Premium X's paywall (reads only)",
+    async () => {
+      // Reads only: X's audience and live pages. X's cells run hour by hour, 7 days each.
+      await go("#/analyze?tab=x-audience");
+      const ours = await until(
+        () =>
+          app(
+            `(() => { const main = document.querySelector("main")?.innerText ?? ""; if (main.includes("Advanced analytics with Plus")) return "paywall"; const lit = [...document.querySelectorAll("main [data-cell]")].filter((c) => Number(c.style.opacity) > 0.15).map((c) => c.dataset.cell).sort(); return lit.length > 0 || main.includes("Active times") ? JSON.stringify(lit) : undefined; })()`,
+          ),
+        30_000,
+      );
+      if (!ours) return false;
+      if (ours === "paywall") return "no Premium: X's paywall";
+      const xs = await until(() =>
+        engine(
+          `(() => { const g = document.querySelector('section[aria-label="Active times"] .grid'); if (!g) return undefined; const cells = [...g.children].filter((c) => c.className.includes("bg-brand")); return cells.length === 168 ? JSON.stringify(cells.flatMap((c, i) => (c.style.opacity === "0.15" ? [] : [\`\${i % 7}-\${Math.floor(i / 7)}\`])).sort()) : undefined; })()`,
+        ),
+      );
+      if (xs !== ours) return (console.log(`  Active times: Xtend ${ours}, X ${xs}`), false);
+      await go("#/analyze?tab=x-live");
+      const rows = await until(
+        () =>
+          app(
+            `(() => { const main = document.querySelector("main")?.innerText ?? ""; return main.includes("No broadcasts available") ? "0" : String(document.querySelectorAll("main tbody tr").length || ""); })()`,
+          ),
+        30_000,
+      );
+      // Strings, as until() takes 0 for "not yet".
+      if (!rows) return false;
+      const theirs = await until(() =>
+        engine(
+          `location.pathname === "/i/account_analytics/live" && (document.body.innerText.includes("No broadcasts available") ? "0" : String(document.querySelectorAll("main tbody tr").length || ""))`,
+        ),
+      );
+      return (
+        rows === theirs &&
+        `${JSON.parse(ours).length} lit hours as X's heatmap; ${rows} broadcasts as X's page lists`
+      );
+    },
+  ],
+  [
     "Library Radar: X's upsell without Premium, else X's queries as X lists them (dry)",
     async () => {
       // Radar is Premium on X. Without it X's page is its upsell, and the section X's intro with
