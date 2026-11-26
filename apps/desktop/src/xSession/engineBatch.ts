@@ -6,6 +6,7 @@ import type {
   EngineRecord,
   EngineBatch,
   EngineBookmarkFolder,
+  EngineBroadcastRow,
   EngineCard,
   EngineCommunity,
   EngineCommunityAdmin,
@@ -1340,6 +1341,10 @@ function keyOf(op: string, variables: Json, exploreTabs: ReadonlyArray<EngineExp
   if (op === "AudioSpaceById" || op === "spacesDetailsProviderQuery") return s("id") ?? null;
   // X's list of the user's Spaces, its first page; X's next pages as its own list scrolls.
   if (op === "spacesOverviewProviderQuery") return s("cursor") === undefined ? "spaces" : null;
+  // X's broadcasts the same way; X's next pages ask with a `{ offset }` cursor.
+  if (op === "liveOverviewProviderQuery")
+    return variables.cursor === null || variables.cursor === undefined ? "live" : null;
+  if (op === "liveDetailsQuery") return s("broadcastId") ?? null;
   const accountAnalytics = accountAnalyticsKey(op, variables);
   if (accountAnalytics !== undefined) return accountAnalytics;
   // A news story's page asks for it by its trend id.
@@ -1516,6 +1521,71 @@ function readSpaceAnalytics(op: string, data: Json): Pick<EngineBatch, "spaceAna
       },
     },
   };
+}
+
+/** One of X's broadcasts as its Live analytics answer it; X sends counts that may be strings. */
+function readBroadcast(b: Json): EngineBroadcastRow | undefined {
+  const broadcastId = asString(b.broadcast_id);
+  // Broadcasts and Spaces share Periscope's ids.
+  if (broadcastId === undefined || !SPACE_ID.test(broadcastId)) return undefined;
+  const totals = record(record(b.counts).total_counts);
+  const n = (value: unknown) => {
+    const count = Number(value ?? 0);
+    return Number.isFinite(count) ? count : 0;
+  };
+  return {
+    broadcastId,
+    title: asString(b.status) ?? "",
+    state: asString(b.state) ?? "",
+    startedAt: spaceTime(b.start_time),
+    endedAt: spaceTime(b.end_time),
+    scheduledStart: spaceTime(b.scheduled_start_time),
+    imageUrl: asString(b.image_url) ?? null,
+    views: n(totals.views),
+    viewers: n(totals.unique_viewers),
+    minutesWatched: n(totals.minutes_watched),
+  };
+}
+
+/**
+ * X's Live analytics (bundle.AccountAnalytics): the first page of the user's broadcasts, and one
+ * broadcast's numbers.
+ */
+function readLiveAnalytics(
+  op: string,
+  variables: Json,
+  data: Json,
+): Pick<EngineBatch, "liveAnalytics"> {
+  if (op === "liveOverviewProviderQuery") {
+    const user = result(record(data.viewer_v2).user_results);
+    // An error alone carries no user; X's next pages would replace its first.
+    if (user.__typename !== "User" || (variables.cursor !== null && variables.cursor !== undefined))
+      return {};
+    return {
+      liveAnalytics: {
+        kind: "list",
+        broadcasts: arr(record(user.broadcasts).broadcasts).flatMap(
+          (b) => readBroadcast(record(b)) ?? [],
+        ),
+      },
+    };
+  }
+  if (op !== "liveDetailsQuery") return {};
+  const b = record(data.broadcast_by_rest_id);
+  const broadcast = readBroadcast(b);
+  return broadcast === undefined
+    ? {}
+    : {
+        liveAnalytics: {
+          kind: "broadcast",
+          broadcast: {
+            ...broadcast,
+            concurrent: arr(b.concurrent_viewers_time_series).flatMap((v) =>
+              typeof v === "number" ? [v] : [],
+            ),
+          },
+        },
+      };
 }
 
 /** X's chat of a Space's recording, a page of which X fetches while its captions are on. */
@@ -1807,6 +1877,7 @@ export function renderEngineBatch(op: string, variables: Json, body: unknown): E
     ...(pinnedLists === undefined ? {} : { pinnedLists }),
     ...(space === undefined ? {} : { spaces: [space] }),
     ...readSpaceAnalytics(op, data),
+    ...readLiveAnalytics(op, variables, data),
     ...(spaceUnavailable === undefined ? {} : { spaceUnavailable }),
     ...(communityAdmin.size === 0 ? {} : { communityAdmin: [...communityAdmin.values()] }),
     ...readCommunityCreate(op, data),
@@ -2041,17 +2112,22 @@ function readAccountAnalytics(
     }
     case "audienceOverviewDataQuery": {
       const text = (value: unknown) => asString(value) ?? null;
-      const row = (r: Json) => ({
-        type: asString(r.engagement_type) ?? "",
-        count: Number(r.count ?? 0),
-        age: text(r.age),
-        gender: text(r.gender),
-        app:
-          r.client_app_id === undefined || r.client_app_id === null
-            ? null
-            : String(r.client_app_id),
-        country: text(r.country),
-      });
+      const row = (r: Json) => {
+        const network = text(r.is_in_network);
+        return {
+          type: asString(r.engagement_type) ?? "",
+          count: Number(r.count ?? 0),
+          age: text(r.age),
+          gender: text(r.gender),
+          app:
+            r.client_app_id === undefined || r.client_app_id === null
+              ? null
+              : String(r.client_app_id),
+          country: text(r.country),
+          // X's page counts "true" as followers and any other value it sends as not.
+          inNetwork: network === null || network === "" ? null : network === "true",
+        };
+      };
       return {
         accountAnalytics: {
           kind: "audience",
@@ -2062,6 +2138,15 @@ function readAccountAnalytics(
           ]
             .map((r) => row(record(r)))
             .filter((r) => r.type !== ""),
+          activeMetric: asString(arr(variables.requested_metrics)[0]) ?? null,
+          // X's heatmap sums each hour's values.
+          active: arr(viewer.organic_metrics_time_series).flatMap((point) => {
+            const at = msOf(record(point).timestamp);
+            const values = Object.values(metricValues(record(point).metric_values));
+            return Number.isFinite(at)
+              ? [{ at: new Date(at).toISOString(), count: values.reduce((a, b) => a + b, 0) }]
+              : [];
+          }),
         },
       };
     }
@@ -2415,6 +2500,7 @@ export const hasEngineContent = (b: EngineBatch) =>
   b.spaces !== undefined ||
   b.spaceCaptions !== undefined ||
   b.spaceAnalytics !== undefined ||
+  b.liveAnalytics !== undefined ||
   b.spaceUnavailable !== undefined ||
   b.communityAdmin !== undefined ||
   b.joinRequests !== undefined ||

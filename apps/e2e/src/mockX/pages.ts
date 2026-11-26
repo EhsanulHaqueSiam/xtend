@@ -875,6 +875,42 @@ export function route(
       },
     };
   }
+  // X's Live analytics: its list of the user's broadcasts, a broadcast's page, or without Premium
+  // X's upsell. X's rows are links here; Xtend opens a broadcast's page by its URL.
+  if (lower === "i" && second === "account_analytics" && third === "live") {
+    if (!state.premium) return route(state, "/i/account_analytics", homeTab);
+    if (fourth !== undefined)
+      return {
+        title: "Analytics / X",
+        requests: [r("liveDetailsQuery", { broadcastId: fourth })],
+        render: ([b]) => {
+          const a = b?.liveAnalytics;
+          return `${header("Livestream Analytics")}${
+            a?.kind !== "broadcast"
+              ? ""
+              : `<h1>${esc(a.broadcast.title || "Untitled Broadcast")}</h1><div>Broadcast Metrics</div><div data-testid="live-metric">Views <span>${a.broadcast.views}</span></div><div>Live Viewers</div><div>Peak Viewers: <span>${Math.max(0, ...a.broadcast.concurrent)}</span></div>`
+          }`;
+        },
+      };
+    return {
+      title: "Analytics / X",
+      requests: [r("liveOverviewProviderQuery", { cursor: null, limit: 30 })],
+      render: ([b]) => {
+        const a = b?.liveAnalytics;
+        const rows = a?.kind === "list" ? a.broadcasts : [];
+        return `${header("Analytics")}<div role="combobox">All</div><button type="button" aria-label="Sort by">⇅</button>${
+          rows.length === 0
+            ? "<p>No broadcasts available for the selected filter</p>"
+            : `<table>${rows
+                .map(
+                  (lb) =>
+                    `<tr data-testid="live-analytics-row"><td><a href="/i/account_analytics/live/${esc(lb.broadcastId)}">${esc(lb.title || "Untitled")}</a></td><td>${lb.minutesWatched}</td><td>${lb.views}</td><td>${lb.viewers}</td></tr>`,
+                )
+                .join("")}</table>`
+        }`;
+      },
+    };
+  }
   if (lower === "i" && second === "account_analytics") {
     const page = third ?? "overview";
     const labels = ANALYTICS_RANGES[page];
@@ -1000,7 +1036,7 @@ export function route(
       title: "Analytics / X",
       requests: [
         r("audienceOverviewDataQuery", {
-          dimensions: ["Age", "Gender", "EngagementType", "ClientAppId"],
+          dimensions: ["Age", "Gender", "EngagementType", "ClientAppId", "IsInNetwork"],
           from_time_incl: from,
           to_time_excl: end - 1,
           heatmap_from_time_incl: iso(end - 28 * DAY_MS),

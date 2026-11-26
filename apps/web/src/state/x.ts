@@ -718,6 +718,30 @@ export const xAnalyticsUpsell = async (
   return null;
 };
 
+/** X's Live analytics page; a broadcast's own page is `/<broadcastId>` under it. */
+export const LIVE_ANALYTICS = "/i/account_analytics/live";
+
+/**
+ * What X's Live analytics page shows the account once X drew it: true for X's upsell, false for
+ * X's list of broadcasts (its Sort by, or its empty line), null when X shows neither in time.
+ * Reads only.
+ */
+export const xLiveUpsell = async (loaded: Promise<unknown>, signal: AbortSignal) => {
+  await loaded;
+  const seen = await xRunHeld(
+    `(async () => {
+    for (let i = 0; i < 100; i++) {
+      if (location.pathname.startsWith("/i/premium_sign_up") || document.body.innerText.includes("Upgrade to continue")) return true;
+      if (location.pathname === ${JSON.stringify(LIVE_ANALYTICS)} && (document.querySelector('[aria-label="Sort by"]') || document.body.innerText.includes("No broadcasts available for the selected filter"))) return false;
+      await new Promise((r) => setTimeout(r, 150));
+    }
+    return null;
+  })()`,
+    signal,
+  );
+  return typeof seen === "boolean" ? seen : null;
+};
+
 /** X's Radar (Premium): the user's saved queries; a query's page is `/<id>`, X's form `/new`. */
 export const RADAR_URL = "https://x.com/i/radar";
 

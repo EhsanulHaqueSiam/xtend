@@ -190,6 +190,12 @@ export const SECTIONS = {
       about: "Your videos' views and watch time from X, free through your session; Premium on X.",
     },
     {
+      id: "x-live",
+      label: "X live",
+      about:
+        "Your broadcasts with X's views, viewers and minutes watched, free through your session; Premium on X.",
+    },
+    {
       id: "x-audience",
       label: "X audience",
       about:

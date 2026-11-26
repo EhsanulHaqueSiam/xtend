@@ -321,7 +321,7 @@ test("Your own post's views and X's ... row open Post Analytics natively, with t
   ).toEqual([]);
 });
 
-test("Analyze draws X's own analytics for the range X's page shows, a range presses X's own button, and a post opens its Post Analytics", async () => {
+test("Analyze draws X's own analytics for the range X's page shows, a range presses X's own button, a post opens its Post Analytics, and audience and Live read X's pages", async () => {
   const impressions = (key: string) => {
     const a = e.mock.state.fixture("accountOverviewDailyQuery", key)!.accountAnalytics!;
     return a.kind === "overview"
@@ -356,6 +356,42 @@ test("Analyze draws X's own analytics for the range X's page shows, a range pres
   await expect.poll(enginePath).toBe("/i/account_analytics/content");
   await e.app.getByText("Shipped a dark mode for the editor.", { exact: false }).click();
   await expect.poll(enginePath).toBe("/you/status/700000000902/analytics");
+
+  // X's audience page answers with who follows the user and its Active times by the hour.
+  await go("/analyze?tab=x-audience");
+  await expect.poll(enginePath).toBe("/i/account_analytics/audience");
+  const following = e.app
+    .locator("main section")
+    .filter({ has: e.app.getByRole("heading", { name: "Following", exact: true }) });
+  await expect
+    .poll(() => following.locator("li").allTextContents())
+    .toEqual(["Followers63.4%", "Non-followers36.6%"]);
+  const cells = e.app.locator("main [data-cell]");
+  expect(await cells.count()).toBe(7 * 24);
+  // The launch hour stands far above the rest: capped, it is X's deepest.
+  expect(
+    await cells.evaluateAll(
+      (cs) => cs.filter((c) => (c as HTMLElement).style.opacity === "1").length,
+    ),
+  ).toBe(1);
+
+  // X's Live page lists the user's broadcasts; one opens its own page and X's numbers for it.
+  await go("/analyze?tab=x-live");
+  await expect.poll(enginePath).toBe("/i/account_analytics/live");
+  const rows = e.app.locator('main [data-x="broadcast-row"]');
+  await expect
+    .poll(() => rows.locator(".font-medium").allTextContents())
+    .toEqual(["Launch week AMA", "Building Xtend live", "Office hours"]);
+  await rows.getByRole("button", { name: /^Building Xtend live/ }).click();
+  await expect.poll(enginePath).toBe("/i/account_analytics/live/900000800001");
+  const views = () => e.app.locator('main [data-x-tile="Views"] dd').textContent();
+  await expect.poll(views).toBe("1,284");
+  expect(
+    await e.engine<string>(
+      `document.querySelector('[data-testid="live-metric"] span')?.textContent`,
+    ),
+  ).toBe("1284");
+  await e.app.getByText("Peak Viewers: 120").waitFor();
 });
 
 test("Without Premium X sends no claims: Analyze reads X's upsell on X's page and shows X's paywall", async () => {

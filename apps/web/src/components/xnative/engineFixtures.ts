@@ -427,6 +427,8 @@ export const RECORDED_SPACE = "900000700003";
 const SCHEDULED_SPACE = "900000700004";
 /** A made-up Space X answers with no Space, as for one ended and removed. */
 export const GONE_SPACE = "900000700007";
+/** The user's own made-up ended broadcast, with X's numbers for it. */
+export const ENDED_BROADCAST = "900000800001";
 /** The made-up news story the first Today's News row opens. */
 const STORY_ID = "900000600001";
 /** One team's made-up standing, the rest of X's columns filled in from its record. */
@@ -572,6 +574,8 @@ const UNPAGED = new Set([
   "LiveChatReplay",
   "spacesOverviewProviderQuery",
   "spacesDetailsProviderQuery",
+  "liveOverviewProviderQuery",
+  "liveDetailsQuery",
 ]);
 /** A batch with the parts every response shares empty. */
 const batch = (
@@ -1376,6 +1380,32 @@ export function synth(): Readonly<Record<string, Fixture>> {
       followers: 1_840,
       verifiedFollowers: 212,
     });
+  // The user's broadcasts on X's Live analytics: two ended, one scheduled.
+  const broadcast = (
+    n: number,
+    title: string,
+    startedAt: string | null,
+    seconds: number,
+    counts: readonly [views: number, viewers: number, minutesWatched: number],
+  ) => ({
+    broadcastId: String(Number(ENDED_BROADCAST) + n),
+    title,
+    state: startedAt === null ? "NotStarted" : "Ended",
+    startedAt,
+    endedAt:
+      startedAt === null ? null : new Date(Date.parse(startedAt) + seconds * 1000).toISOString(),
+    scheduledStart: null,
+    imageUrl: startedAt === null ? null : placeholder(`live-${n}`, 640, 360),
+    views: counts[0],
+    viewers: counts[1],
+    minutesWatched: counts[2],
+  });
+  const ended = broadcast(0, "Building Xtend live", ago(2 * 1_440), 4_360, [1_284, 402, 3_910]);
+  const office = broadcast(1, "Office hours", ago(7 * 1_440), 2_465, [318, 121, 866]);
+  const scheduled = {
+    ...broadcast(2, "Launch week AMA", null, 0, [0, 0, 0]),
+    scheduledStart: new Date(Date.parse(SYNTH_AT) + 2 * DAY).toISOString(),
+  };
   const mediaKey = (minutes: number) =>
     `13_${(BigInt(Date.parse(ago(minutes))) - 1_288_834_974_657n) << 22n}`;
   const accountAnalytics: Fixture = {
@@ -1383,6 +1413,7 @@ export function synth(): Readonly<Record<string, Fixture>> {
       "/analyze?tab=x-overview",
       "/analyze?tab=x-content",
       "/analyze?tab=x-video",
+      "/analyze?tab=x-live",
       "/analyze?tab=x-audience",
     ]),
     batches: [
@@ -1469,6 +1500,7 @@ export function synth(): Readonly<Record<string, Fixture>> {
             gender: "Female",
             app: "129032",
             country: null,
+            inNetwork: true,
           },
           {
             type: "Fav",
@@ -1477,6 +1509,7 @@ export function synth(): Readonly<Record<string, Fixture>> {
             gender: "Male",
             app: "258901",
             country: null,
+            inNetwork: false,
           },
           {
             type: "Fav",
@@ -1485,6 +1518,7 @@ export function synth(): Readonly<Record<string, Fixture>> {
             gender: "Unknown",
             app: "3033300",
             country: null,
+            inNetwork: true,
           },
           {
             type: "Displayed",
@@ -1493,10 +1527,54 @@ export function synth(): Readonly<Record<string, Fixture>> {
             gender: "Male",
             app: "3033300",
             country: null,
+            inNetwork: false,
           },
-          { type: "Fav", count: 41, age: null, gender: null, app: null, country: "BD" },
-          { type: "Fav", count: 19, age: null, gender: null, app: null, country: "US" },
+          {
+            type: "Fav",
+            count: 41,
+            age: null,
+            gender: null,
+            app: null,
+            country: "BD",
+            inNetwork: null,
+          },
+          {
+            type: "Fav",
+            count: 19,
+            age: null,
+            gender: null,
+            app: null,
+            country: "US",
+            inNetwork: null,
+          },
         ],
+        activeMetric: "Likes",
+        // X's 28 days by the hour up to the range's end: busy afternoons, quieter weekends, and
+        // one launch hour far above the rest.
+        active: Array.from({ length: 28 * 24 }, (_, i) => {
+          const at = new Date(today + DAY - (28 * 24 - i) * 3_600_000);
+          const busy = Math.round(8 * Math.sin((Math.PI * (at.getUTCHours() - 6)) / 16));
+          const quiet = at.getUTCDay() % 6 === 0 ? 3 : 0;
+          return {
+            at: at.toISOString(),
+            count: i === 28 * 24 - 30 ? 90 : Math.max(0, busy - quiet),
+          };
+        }),
+      }),
+      batch("liveOverviewProviderQuery", "live", [], {
+        liveAnalytics: { kind: "list", broadcasts: [ended, office, scheduled] },
+      }),
+      batch("liveDetailsQuery", ENDED_BROADCAST, [], {
+        liveAnalytics: {
+          kind: "broadcast",
+          broadcast: {
+            ...ended,
+            // Viewers by the minute: a slow start, a peak mid-way, a tail.
+            concurrent: Array.from({ length: 73 }, (_, i) =>
+              Math.round(120 * Math.sin((Math.PI * i) / 72) ** 0.6),
+            ),
+          },
+        },
       }),
     ],
   };

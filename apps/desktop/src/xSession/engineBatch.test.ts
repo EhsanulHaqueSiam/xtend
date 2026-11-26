@@ -1717,9 +1717,18 @@ describe("renderEngineBatch around posts", () => {
       },
     ]);
 
+    // With X's followers split (IsInNetwork) and its Active times: the 28 days by the hour, for the
+    // metric X's page asked about.
     const audience = renderEngineBatch(
       "audienceOverviewDataQuery",
-      { from_time_incl: Date.UTC(2026, 9, 27), to_time_excl: Date.UTC(2026, 10, 3) - 1 },
+      {
+        dimensions: ["Age", "Gender", "EngagementType", "ClientAppId", "IsInNetwork"],
+        from_time_incl: Date.UTC(2026, 9, 27),
+        to_time_excl: Date.UTC(2026, 10, 3) - 1,
+        heatmap_from_time_incl: "2026-10-06T00:00:00.000Z",
+        heatmap_to_time_excl: "2026-11-03T00:00:00.000Z",
+        requested_metrics: ["Likes"],
+      },
       viewer({
         uec_metrics_daily_time_series_count: [
           {
@@ -1728,10 +1737,32 @@ describe("renderEngineBatch around posts", () => {
             age: "Age25to34",
             gender: "Female",
             client_app_id: 129032,
+            is_in_network: "true",
+            timestamp: Date.UTC(2026, 9, 27),
+          },
+          {
+            engagement_type: "Fav",
+            count: 4,
+            age: "Age18to24",
+            gender: "Male",
+            client_app_id: 3033300,
+            is_in_network: "false",
+            timestamp: Date.UTC(2026, 9, 27),
           },
         ],
         uec_country_metrics_daily_time_series_count: [
           { engagement_type: "Fav", count: 3, country: "BD" },
+        ],
+        organic_metrics_time_series: [
+          {
+            timestamp: { iso8601_time: "2026-11-02T09:00:00.000Z" },
+            metric_values: [{ metric_type: "Likes", metric_value: 5 }],
+          },
+          // X leaves a zero's value out.
+          {
+            timestamp: { iso8601_time: "2026-11-02T10:00:00.000Z" },
+            metric_values: [{ metric_type: "Likes" }],
+          },
         ],
       }),
     );
@@ -1748,9 +1779,147 @@ describe("renderEngineBatch around posts", () => {
             gender: "Female",
             app: "129032",
             country: null,
+            inNetwork: true,
           },
-          { type: "Fav", count: 3, age: null, gender: null, app: null, country: "BD" },
+          {
+            type: "Fav",
+            count: 4,
+            age: "Age18to24",
+            gender: "Male",
+            app: "3033300",
+            country: null,
+            inNetwork: false,
+          },
+          {
+            type: "Fav",
+            count: 3,
+            age: null,
+            gender: null,
+            app: null,
+            country: "BD",
+            inNetwork: null,
+          },
         ],
+        activeMetric: "Likes",
+        active: [
+          { at: "2026-11-02T09:00:00.000Z", count: 5 },
+          { at: "2026-11-02T10:00:00.000Z", count: 0 },
+        ],
+      },
+    ]);
+  });
+
+  it("reads X's Live analytics: the user's broadcasts in X's words, only X's first page, and one broadcast's numbers", () => {
+    const broadcast = {
+      broadcast_id: "1yNGaQLqqwdJj",
+      state: "Ended",
+      status: "Building Xtend live",
+      start_time: 1795500000000,
+      end_time: 1795504360000,
+      scheduled_start_time: null,
+      source: "Twitter Media Studio",
+      image_url: "https://pbs.twimg.com/live.jpg",
+      private_chat: false,
+      // X counts with `+`: its numbers may come as strings.
+      counts: { total_counts: { views: "1284", unique_viewers: 402, minutes_watched: "3910" } },
+      id: "QnJvYWRjYXN0OjF5TkdhUUxxcXdkSmo=",
+    };
+    const page = (cursor: unknown) =>
+      renderEngineBatch(
+        "liveOverviewProviderQuery",
+        { cursor, limit: 30 },
+        {
+          data: {
+            viewer_v2: {
+              user_results: {
+                result: {
+                  __typename: "User",
+                  broadcasts: {
+                    broadcasts: [
+                      broadcast,
+                      {
+                        broadcast_id: "1OwxWwnoleRGQ",
+                        state: "NotStarted",
+                        status: "",
+                        scheduled_start_time: 1795700000000,
+                        counts: null,
+                      },
+                      { broadcast_id: null, state: "Ended" },
+                    ],
+                    cursor: { offset: "MTc5NTUwMDAwMDAwMA" },
+                  },
+                },
+              },
+            },
+          },
+        },
+      );
+    const row = {
+      broadcastId: "1yNGaQLqqwdJj",
+      title: "Building Xtend live",
+      state: "Ended",
+      startedAt: "2026-11-24T06:00:00.000Z",
+      endedAt: "2026-11-24T07:12:40.000Z",
+      scheduledStart: null,
+      imageUrl: "https://pbs.twimg.com/live.jpg",
+      views: 1284,
+      viewers: 402,
+      minutesWatched: 3910,
+    };
+    const first = page(null);
+    expect([first.key, first.liveAnalytics]).toEqual([
+      "live",
+      {
+        kind: "list",
+        broadcasts: [
+          row,
+          {
+            broadcastId: "1OwxWwnoleRGQ",
+            title: "",
+            state: "NotStarted",
+            startedAt: null,
+            endedAt: null,
+            scheduledStart: "2026-11-26T13:33:20.000Z",
+            imageUrl: null,
+            views: 0,
+            viewers: 0,
+            minutesWatched: 0,
+          },
+        ],
+      },
+    ]);
+    // X's next page, as its own list scrolls, would replace the first.
+    const next = page({ offset: "MTc5NTUwMDAwMDAwMA" });
+    expect([next.key, next.liveAnalytics]).toEqual([null, undefined]);
+
+    const one = renderEngineBatch(
+      "liveDetailsQuery",
+      { broadcastId: "1yNGaQLqqwdJj" },
+      {
+        data: {
+          broadcast_by_rest_id: {
+            ...broadcast,
+            counts: {
+              total_counts: { views: "1284", minutes_watched: "3910", unique_viewers: "402" },
+              live_counts: { views: "900", minutes_watched: "3000", unique_viewers: "300" },
+              replay_counts: { views: "384", minutes_watched: "910", unique_viewers: "102" },
+            },
+            demographic_counts: {
+              total_demographic_counts: {
+                views_by_country: [{ key: "BD", value: "800" }],
+                views_by_device: [{ key: "iPhone", value: "700" }],
+              },
+            },
+            concurrent_viewers_time_series: [0, 40, 120, 88],
+          },
+        },
+      },
+    );
+    expect([one.key, one.liveAnalytics]).toEqual([
+      "1yNGaQLqqwdJj",
+      {
+        kind: "broadcast",
+        broadcast: { ...row, concurrent: [0, 40, 120, 88] },
       },
     ]);
   });

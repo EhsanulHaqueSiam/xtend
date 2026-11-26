@@ -28,6 +28,8 @@ import type {
   EngineSpaceCaption,
   EngineSpaceRow,
   EngineSpaceStats,
+  EngineBroadcastRow,
+  EngineBroadcastStats,
   EngineStory,
   EngineTrend,
   EngineUser,
@@ -504,6 +506,9 @@ export interface EngineState {
   readonly spaceStats: ReadonlyMap<string, EngineSpaceStats>;
   /** Spaces X answered with no Space (see `EngineBatch.spaceUnavailable`), until X sends one. */
   readonly spacesUnavailable: ReadonlySet<string>;
+  /** X's Live analytics: the user's broadcasts once X listed them, and each broadcast's numbers. */
+  readonly broadcastList: ReadonlyArray<EngineBroadcastRow> | null;
+  readonly broadcastStats: ReadonlyMap<string, EngineBroadcastStats>;
 }
 
 /** X's claim for its account analytics (GetUserClaims), Premium. */
@@ -639,6 +644,8 @@ export const emptyEngine: EngineState = {
   spaceList: null,
   spaceStats: new Map(),
   spacesUnavailable: new Set(),
+  broadcastList: null,
+  broadcastStats: new Map(),
 };
 
 /** A surface's entries; a tab X has not sent yet has none. */
@@ -856,6 +863,15 @@ export function mergeBatch(state: EngineState, batch: EngineBatch): EngineState 
             )
           : state.spacesUnavailable,
     xArticles: mergeXArticles(state.xArticles, batch),
+    broadcastList:
+      batch.liveAnalytics?.kind === "list" ? batch.liveAnalytics.broadcasts : state.broadcastList,
+    broadcastStats:
+      batch.liveAnalytics?.kind === "broadcast"
+        ? new Map(state.broadcastStats).set(
+            batch.liveAnalytics.broadcast.broadcastId,
+            batch.liveAnalytics.broadcast,
+          )
+        : state.broadcastStats,
   };
   const listed = surfacesOf(batch).reduce(
     (state, surface) =>

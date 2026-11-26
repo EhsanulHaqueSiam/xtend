@@ -762,6 +762,11 @@ export function createMockState(options: MockOptions = {}) {
         return fixture(op, "spaces") ?? null;
       case "spacesDetailsProviderQuery":
         return fixture(op, s(variables, "id") ?? "") ?? null;
+      // X's Live analytics the same way: its first page, and a broadcast's own numbers.
+      case "liveOverviewProviderQuery":
+        return variables.cursor === null ? (fixture(op, "live") ?? null) : null;
+      case "liveDetailsQuery":
+        return fixture(op, s(variables, "broadcastId") ?? "") ?? null;
       case "AudioSpaceById": {
         const id = s(variables, "id") ?? "";
         const space = spaces.space(id);
