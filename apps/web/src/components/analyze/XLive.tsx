@@ -1,7 +1,7 @@
 import { useAtomSet, useAtomValue } from "@effect/atom-react";
 import type { EngineBroadcastRow, EngineBroadcastStats } from "@xtend/contracts";
 import { ArrowLeft } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 
 import { isElectron } from "../../env";
 import { cn } from "../../lib/utils";
@@ -61,13 +61,10 @@ export function XLiveSection() {
   const [open, setOpen] = useState<string | null>(null);
   const [filter, setFilter] = useState<Filter>("all");
   const url = `https://x.com${LIVE_ANALYTICS}${open === null ? "" : `/${open}`}`;
-  // What the section shows now: leaving it lets go of what it asked X for there.
-  const page = useRef(new AbortController());
   // oxlint-disable-next-line xtend/no-unreasoned-state-sync -- moves the engine (the session view) to X's Live analytics page for what the section shows, and reads whether X shows it or its upsell.
   useEffect(() => {
     const mine = new AbortController();
-    page.current = mine;
-    const loaded = xGo(url, mine.signal);
+    const loaded = xGo(url);
     if (open === null)
       void xLiveUpsell(loaded, mine.signal).then((upsell) => {
         if (upsell !== null) setEngine(updateEngine((s) => sawAnalyticsPage(s, upsell)));
@@ -120,7 +117,7 @@ export function XLiveSection() {
         stats === undefined ? (
           <XEmpty
             empty="Loading the broadcast's analytics from X."
-            onReopen={() => void xNavigate(url, page.current.signal)}
+            onReopen={() => void xNavigate(url)}
           />
         ) : stats === null ? (
           <Empty>X has no analytics for this broadcast. It may have been deleted.</Empty>
@@ -134,7 +131,7 @@ export function XLiveSection() {
               ? "Loading X's Live analytics."
               : "X's analytics come from X's own page, in the desktop app."
           }
-          onReopen={() => void xNavigate(url, page.current.signal)}
+          onReopen={() => void xNavigate(url)}
         />
       ) : rows.length === 0 ? (
         <Empty>{broadcastMore ? latest : "No broadcasts available for the selected filter"}</Empty>

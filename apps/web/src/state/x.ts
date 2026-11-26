@@ -38,8 +38,8 @@ const isXUrl = (url: string) => {
 
 let element: XWebview | null = null;
 let ready = false;
-/** The newest page asked for before the guest could load it; its caller settles once it loads. */
-let pending: { readonly url: string; readonly settle: (loaded: boolean) => void } | null = null;
+/** The page asked for before the guest could load it, and who waits for it to load. */
+let pending: { url: string; waiters: Array<() => void> } | null = null;
 
 /** Called by XPane: the element exists, and later, its guest can take commands. */
 export const registerXWebview = (el: XWebview | null) => {
@@ -54,13 +54,14 @@ export const markXReady = () => {
   const asked = pending;
   pending = null;
   if (asked === null || element === null) return;
+  const done = () => asked.waiters.forEach((resolve) => resolve());
   // The guest's first page is often the one asked for; loading it again costs X a second boot.
-  if (element.getURL() === asked.url) asked.settle(true);
+  if (element.getURL() === asked.url) done();
   else
     void element
       .loadURL(asked.url)
       .catch(() => {})
-      .then(() => asked.settle(true));
+      .then(done);
 };
 
 /** Whether xGo moves X's page at `url` through X's router, not a full load. */
@@ -86,33 +87,12 @@ export const xKeepsPage = () => keepPage;
 let moves = 0;
 
 /**
- * Before the guest is ready, `url` as the newest ask: true once the guest loaded it, false at once
- * when a newer ask replaces it or its screen leaves (`signal`).
+ * Loads an x.com URL; other hosts are ignored. Resolves once the page has loaded, so an engine
+ * step (picking Home's tab) can follow it. Before the guest is ready the last call wins and every
+ * caller waits for that load: resolving early would run the step against no page at all.
  */
-const queue = (url: string, signal?: AbortSignal) => {
-  if (signal?.aborted === true) return Promise.resolve(false);
-  moves++;
-  return new Promise<boolean>((settle) => {
-    pending?.settle(false);
-    const ask = { url, settle };
-    pending = ask;
-    signal?.addEventListener(
-      "abort",
-      () => {
-        if (pending === ask) pending = null;
-        settle(false);
-      },
-      { once: true },
-    );
-  });
-};
-
-/**
- * Loads an x.com URL; other hosts are ignored. Resolves once the page has loaded. Before the guest
- * is ready the newest ask waits for its load, so the next step has a page (see `queue`).
- */
-export const xNavigate = (url: string, signal?: AbortSignal): Promise<void> => {
-  if (!isXUrl(url) || signal?.aborted === true) return Promise.resolve();
+export const xNavigate = (url: string): Promise<void> => {
+  if (!isXUrl(url)) return Promise.resolve();
   // X leaves the Space it plays when its page unloads; its router keeps its dock and the audio.
   // The page X already shows refreshes through X's own nav link for it, as a click there does.
   if (keepPage && element !== null && ready && routable(element.getURL())) {
@@ -129,9 +109,11 @@ export const xNavigate = (url: string, signal?: AbortSignal): Promise<void> => {
       () => {},
     );
   }
-  if (element === null || !ready) return queue(url, signal).then(() => {});
   moves++;
-  return element.loadURL(url).catch(() => {});
+  if (element !== null && ready) return element.loadURL(url).catch(() => {});
+  return new Promise((resolve) => {
+    pending = { url, waiters: [...(pending?.waiters ?? []), resolve] };
+  });
 };
 
 /** `work`, or null once `signal` aborts or X's page loads anew under it, when it never settles. */
@@ -150,21 +132,18 @@ const heldOn = <A>(work: Promise<A>, signal: AbortSignal) =>
   });
 
 /**
- * Moves the engine to an x.com page through X's own router, like a link clicked in X, so a page X
- * still holds shows without a fetch; loads it before the first load or off a signed-in x.com page.
- * True when it moved; with `signal`, false once it aborts or X's page loads anew before the move
- * lands, and aborting drops a load still queued for the guest.
+ * Moves the engine to an x.com page through X's own router, like a link clicked in X: no full
+ * reload, and a page X still holds shows without a fetch, so screens read its keyed surface. Loads
+ * the URL instead before the first load or off a signed-in x.com page. True when it moved; with
+ * `signal`, false once it aborts or X's page loads anew before the move lands.
  */
 export const xGo = (url: string, signal?: AbortSignal): Promise<boolean> =>
-  // Queued for the guest's first load, the move is that load: a newer ask or leaving ends it.
-  signal === undefined || element === null || !ready
-    ? go(url, signal)
-    : heldOn(go(url, signal), signal).then((moved) => moved ?? false);
+  signal === undefined ? go(url) : heldOn(go(url), signal).then((moved) => moved ?? false);
 
-const go = (url: string, signal?: AbortSignal): Promise<boolean> => {
+const go = (url: string): Promise<boolean> => {
   if (!isXUrl(url)) return Promise.resolve(false);
-  if (element === null || !ready) return queue(url, signal);
   const load = () => xNavigate(url).then(() => true);
+  if (element === null || !ready) return load();
   const el = element;
   let here: URL;
   try {

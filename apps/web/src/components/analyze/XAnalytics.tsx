@@ -118,8 +118,7 @@ function useXAnalytics(section: XSection) {
   useEffect(() => {
     const mine = new AbortController();
     live.current = mine;
-    // Leaving drops a load still queued for the guest, so X's page never loads off screen.
-    loaded.current = xGo(url, mine.signal);
+    loaded.current = xGo(url);
     void xAnalyticsUpsell(page.path, loaded.current, mine.signal).then((upsell) => {
       if (upsell !== null) setEngine(updateEngine((s) => sawAnalyticsPage(s, upsell)));
     });

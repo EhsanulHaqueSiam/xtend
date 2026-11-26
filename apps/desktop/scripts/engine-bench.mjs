@@ -1687,13 +1687,20 @@ const benchmarks = [
         ))
       )
         return false;
-      // The store's broadcasts, as Xtend's list virtualizes its rows. Strings, as until() takes 0
-      // for "not yet".
+      // The store's broadcasts, and the rows Xtend's table draws for them (filter All). Strings, as
+      // until() takes 0 for "not yet".
       const rows = await until(
         () => store(`$.broadcastList && String($.broadcastList.length)`),
         30_000,
       );
       if (!rows) return false;
+      const drawn = await until(() =>
+        app(
+          `String(document.querySelectorAll('main [data-x="broadcast-row"]').length) === ${JSON.stringify(rows)} && ${JSON.stringify(rows)}`,
+        ),
+      );
+      if (drawn !== rows)
+        return (console.log(`  X live: ${rows} in the store, table drew fewer`), false);
       const theirs = await until(() =>
         engine(
           `location.pathname === "/i/account_analytics/live" && (document.body.innerText.includes("No broadcasts available") ? "0" : String(document.querySelectorAll("main tbody tr").length || ""))`,

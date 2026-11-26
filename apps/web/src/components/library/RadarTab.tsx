@@ -62,12 +62,11 @@ export function RadarTab() {
   // oxlint-disable-next-line xtend/no-unreasoned-state-sync -- moves the engine (the session view) to X's Radar page for what the section shows, and reads whether X shows its Premium upsell there.
   useEffect(() => {
     if (creating) return;
-    const mine = new AbortController();
-    const loaded = xGo(open === null ? RADAR_URL : `${RADAR_URL}/${open}`, mine.signal);
-    if (open === null)
-      void xRadarUpsell(loaded).then((shows) => !mine.signal.aborted && setUpsell(shows));
+    let live = true;
+    const loaded = xGo(open === null ? RADAR_URL : `${RADAR_URL}/${open}`);
+    if (open === null) void xRadarUpsell(loaded).then((shows) => live && setUpsell(shows));
     return () => {
-      mine.abort();
+      live = false;
       xOverEnded();
     };
   }, [open, creating]);
