@@ -48,8 +48,11 @@ export const startEngine = (mockOptions?: Parameters<typeof startMockX>[0]) =>
         XTEND_SERVICE_URL: service.url,
         XTEND_SERVICE_TOKEN: service.token,
         XTEND_MOCK_X: mock.url,
-        // Hidden unless XTEND_HEADED=1: off the screen, out of focus, the same size on every host.
-        XTEND_HEADLESS: process.env.XTEND_HEADED === "1" ? "0" : "1",
+        // macOS: hidden unless XTEND_HEADED=1, off the user's screen and out of a tiling window
+        // manager's reach. Linux runs under xvfb-run, a display of its own, where a hidden window
+        // lays out and paints differently (a compact-layout check failed, at half the speed).
+        XTEND_HEADLESS:
+          process.platform === "darwin" && process.env.XTEND_HEADED !== "1" ? "1" : "0",
         ...(process.platform === "linux" ? { ELECTRON_DISABLE_SANDBOX: "1" } : {}),
       },
       timeout: 30_000,

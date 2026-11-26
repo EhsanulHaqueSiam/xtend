@@ -73,9 +73,11 @@ Scenarios are the tests in [`scripts/scenarios`](../../scripts/scenarios) that d
 login.
 
 - Each test file starts its own service, temp home, fake treg, mock X and Electron on free ports.
-  The desktop runs hidden (`XTEND_HEADLESS`): no window, Dock icon or tray, and the same window size
-  on every host, since a tiling window manager would otherwise resize it and change the layout.
-  `XTEND_HEADED=1 pnpm test:engine` shows it, to watch a failure.
+  On macOS the desktop runs hidden (`XTEND_HEADLESS`): no window, Dock icon or tray, and the same
+  window size on every Mac, since a tiling window manager would otherwise resize it and change the
+  layout. `XTEND_HEADED=1 pnpm test:engine` shows it, to watch a failure. On Linux it runs shown
+  under `xvfb-run -a`, a display of its own (as CI and the dev container do); a hidden window there
+  lays out differently.
 - Worktrees run scenarios side by side. Within one checkout, one run at a time: a run builds that
   checkout's web app and desktop in place, and a second run fails at once, naming the first.
 - Seed through the service (`rpc` and `observe` from
