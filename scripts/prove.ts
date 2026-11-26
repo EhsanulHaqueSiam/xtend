@@ -11,7 +11,7 @@ import * as NodeOS from "node:os";
 import * as NodePath from "node:path";
 import * as NodeUtil from "node:util";
 
-import { STARTUP_FAILED } from "./scenarios/harness.ts";
+import { STARTUP_FAILED } from "./scenarios/appDir.ts";
 
 /** The parts of vitest's JSON report a verdict reads. */
 export interface RunReport {
@@ -63,8 +63,6 @@ export const projectOf = (file: string) =>
 const root = NodePath.dirname(import.meta.dirname);
 // Ctrl-C reaches the child and ends it; this process, blocked in spawnSync, sees it only there.
 let interrupted = () => process.exit(130);
-// Without a listener Node dies of the Ctrl-C before spawnSync returns, and nothing cleans up.
-process.on("SIGINT", () => {});
 const run = (
   cmd: string,
   args: ReadonlyArray<string>,
@@ -78,6 +76,8 @@ const git = (...args: ReadonlyArray<string>) =>
   NodeChildProcess.execFileSync("git", args, { cwd: root, encoding: "utf8" }).trim();
 
 if (import.meta.main) {
+  // Without a listener Node dies of the Ctrl-C before spawnSync returns, and nothing cleans up.
+  process.on("SIGINT", () => {});
   const { values, positionals } = NodeUtil.parseArgs({
     allowPositionals: true,
     options: {

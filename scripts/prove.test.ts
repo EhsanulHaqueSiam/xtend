@@ -1,7 +1,7 @@
 import { expect, it } from "vite-plus/test";
 
 import { exitCodeOf, projectOf, resultOf } from "./prove.ts";
-import { STARTUP_FAILED } from "./scenarios/harness.ts";
+import { STARTUP_FAILED } from "./scenarios/appDir.ts";
 
 const report = (failed: number, passed: number, message = "") => ({
   numTotalTests: failed + passed,

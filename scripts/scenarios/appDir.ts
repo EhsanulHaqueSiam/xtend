@@ -8,3 +8,6 @@ import * as NodePath from "node:path";
 export const APP_DIR = NodePath.resolve(
   process.env.XTEND_SCENARIO_APP_DIR ?? NodePath.join(import.meta.dirname, "../.."),
 );
+
+/** Marks an app that never started, so `pnpm prove` never counts it as the behavior failing. */
+export const STARTUP_FAILED = "[scenario startup failed]";

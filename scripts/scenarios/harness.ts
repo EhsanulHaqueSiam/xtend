@@ -10,7 +10,7 @@ import type * as Rpc from "effect/rpc/Rpc";
 import type * as RpcGroup from "effect/rpc/RpcGroup";
 import { type Locator, chromium } from "playwright";
 
-import { APP_DIR } from "./appDir.ts";
+import { APP_DIR, STARTUP_FAILED } from "./appDir.ts";
 import { startFakeTreg } from "./fakeTreg.ts";
 
 export { CHARGE, SEARCH_HIT } from "./fakeTreg.ts";
@@ -35,23 +35,19 @@ type RpcOf<M extends Method> = Rpc.ExtractTag<Rpcs, M>;
 /**
  * Runs `launch` in a fresh temp dir. Everything startup acquires is undone in reverse on close
  * and also when startup fails partway, so a failed launch leaves no process or temp dir behind;
- * one failing step does not skip the rest.
+ * one failing step does not skip the rest. Any startup failure carries STARTUP_FAILED.
  */
-/** Marks an app that never started, so `pnpm prove` never counts it as the behavior failing. */
-export const STARTUP_FAILED = "[scenario startup failed]";
-
 export async function withTempDir<A>(
   prefix: string,
   launch: (dir: string, undo: Array<() => Promise<unknown>>) => Promise<A>,
 ) {
-  const dir = await NodeFSP.mkdtemp(NodePath.join(NodeOS.tmpdir(), prefix));
-  const undo: Array<() => Promise<unknown>> = [
-    () => NodeFSP.rm(dir, { recursive: true, force: true }),
-  ];
+  const undo: Array<() => Promise<unknown>> = [];
   const close = async () => {
     for (const step of undo.toReversed()) await step().catch(() => undefined);
   };
   try {
+    const dir = await NodeFSP.mkdtemp(NodePath.join(NodeOS.tmpdir(), prefix));
+    undo.push(() => NodeFSP.rm(dir, { recursive: true, force: true }));
     return { ...(await launch(dir, undo)), close };
   } catch (error) {
     await close();
