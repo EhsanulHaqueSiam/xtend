@@ -1317,6 +1317,8 @@ export function encodeBody(
     }
     case "liveDetailsQuery": {
       const a = batch.liveAnalytics;
+      // X answers a broadcast it no longer has with none.
+      if (a?.kind === "unavailable") return { data: { broadcast_by_rest_id: null } };
       return a?.kind !== "broadcast"
         ? { data: {} }
         : {

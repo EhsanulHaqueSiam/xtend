@@ -1671,9 +1671,11 @@ const benchmarks = [
         );
         return walled && upsell && "no Premium: X's paywall on audience and live";
       }
+      // X draws no heatmap without samples: its section bare or gone beside its others, or its
+      // page's "Not enough data yet", reads as no lit hours.
       const xs = await until(() =>
         engine(
-          `(() => { const g = document.querySelector('section[aria-label="Active times"] .grid'); if (!g) return undefined; const cells = [...g.children].filter((c) => c.className.includes("bg-brand")); return cells.length === 168 ? JSON.stringify(cells.flatMap((c, i) => (c.style.opacity === "0.15" ? [] : [\`\${i % 7}-\${Math.floor(i / 7)}\`])).sort()) : undefined; })()`,
+          `(() => { if (location.pathname !== "/i/account_analytics/audience") return undefined; const section = document.querySelector('section[aria-label="Active times"]'); const g = section?.querySelector(".grid"); if (!g) return section || document.querySelector('section[aria-label="Gender"]') || document.body.innerText.includes("Not enough data yet") ? "[]" : undefined; const cells = [...g.children].filter((c) => c.className.includes("bg-brand")); return cells.length === 168 ? JSON.stringify(cells.flatMap((c, i) => (c.style.opacity === "0.15" ? [] : [\`\${i % 7}-\${Math.floor(i / 7)}\`])).sort()) : undefined; })()`,
         ),
       );
       if (xs !== ours) return (console.log(`  Active times: Xtend ${ours}, X ${xs}`), false);

@@ -1557,13 +1557,15 @@ function readLiveAnalytics(
   data: Json,
 ): Pick<EngineBatch, "liveAnalytics"> {
   if (op === "liveOverviewProviderQuery") {
-    const listed = record(result(record(data.viewer_v2).user_results).broadcasts);
-    // A partial answer or an error alone carries no list; Xtend reads X's first page only.
-    if (!Array.isArray(listed.broadcasts) || (variables.cursor ?? null) !== null) return {};
+    const user = result(record(data.viewer_v2).user_results);
+    // An error alone carries no user; Xtend reads X's first page only.
+    if (user.__typename !== "User" || (variables.cursor ?? null) !== null) return {};
+    // X's page reads the user's answer without its list as no broadcasts.
+    const listed = record(user.broadcasts);
     return {
       liveAnalytics: {
         kind: "list",
-        broadcasts: listed.broadcasts.flatMap((b) => readBroadcast(record(b)) ?? []),
+        broadcasts: arr(listed.broadcasts).flatMap((b) => readBroadcast(record(b)) ?? []),
         // X's empty offset is its end.
         more: (asString(record(listed.cursor).offset) ?? "") !== "",
       },

@@ -1,11 +1,11 @@
-import { useAtomSet, useAtomValue } from "@effect/atom-react";
+import { useAtomValue } from "@effect/atom-react";
 import type { EngineBroadcastRow, EngineBroadcastStats } from "@xtend/contracts";
 import { ArrowLeft } from "lucide-react";
 import { useEffect, useState } from "react";
 
 import { isElectron } from "../../env";
 import { cn } from "../../lib/utils";
-import { engineAtom, sawAnalyticsPage, updateEngine } from "../../state/engine";
+import { engineAtom } from "../../state/engine";
 import { LIVE_ANALYTICS, xGo, xLiveUpsell, xNavigate } from "../../state/x";
 import { PageHeader } from "../PageHeader";
 import { sectionLabel } from "../shell/sections";
@@ -57,8 +57,9 @@ const length = (b: EngineBroadcastRow) =>
 export function XLiveSection() {
   const { broadcastList, broadcastMore, broadcastStats, accountAnalytics } =
     useAtomValue(engineAtom);
-  const setEngine = useAtomSet(engineAtom);
   const [open, setOpen] = useState<string | null>(null);
+  // X's Live page's own word: its upsell shows the paywall whatever other pages or claims said.
+  const [upsell, setUpsell] = useState(false);
   const [filter, setFilter] = useState<Filter>("all");
   const url = `https://x.com${LIVE_ANALYTICS}${open === null ? "" : `/${open}`}`;
   // oxlint-disable-next-line xtend/no-unreasoned-state-sync -- moves the engine (the session view) to X's Live analytics page for what the section shows, and reads whether X shows it or its upsell.
@@ -66,13 +67,13 @@ export function XLiveSection() {
     const mine = new AbortController();
     const loaded = xGo(url);
     if (open === null)
-      void xLiveUpsell(loaded, mine.signal).then((upsell) => {
-        if (upsell !== null) setEngine(updateEngine((s) => sawAnalyticsPage(s, upsell)));
+      void xLiveUpsell(loaded, mine.signal).then((shown) => {
+        if (shown !== null) setUpsell(shown);
       });
     return () => mine.abort();
-  }, [url, open, setEngine]);
+  }, [url, open]);
   // X's gate lets in some accounts its claims do not name: X's answer wins.
-  const locked = accountAnalytics.access === false && broadcastList === null;
+  const locked = (accountAnalytics.access === false || upsell) && broadcastList === null;
   const stats = open === null ? undefined : broadcastStats.get(open);
   const rows = (broadcastList ?? [])
     .filter((b) => shows(b, filter))

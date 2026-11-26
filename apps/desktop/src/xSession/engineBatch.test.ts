@@ -1891,8 +1891,20 @@ describe("renderEngineBatch around posts", () => {
     });
     const next = page({ offset: "MTc5NTUwMDAwMDAwMA" }, [broadcast]);
     expect([next.key, next.liveAnalytics]).toEqual([null, undefined]);
-    // A partial answer without X's list says nothing about it.
-    expect(page(null, null).liveAnalytics).toBeUndefined();
+    // X's own page reads the user's answer without its list as no broadcasts; an error alone,
+    // with no user, says nothing.
+    const listless = renderEngineBatch(
+      "liveOverviewProviderQuery",
+      { cursor: null, limit: 30 },
+      {
+        data: { viewer_v2: { user_results: { result: { __typename: "User", broadcasts: null } } } },
+      },
+    );
+    expect(listless.liveAnalytics).toEqual({ kind: "list", broadcasts: [], more: false });
+    expect(
+      renderEngineBatch("liveOverviewProviderQuery", { cursor: null }, { errors: [{}] })
+        .liveAnalytics,
+    ).toBeUndefined();
 
     const one = renderEngineBatch(
       "liveDetailsQuery",

@@ -62,6 +62,7 @@ const PAGES: ReadonlyArray<readonly [path: string, tab?: string]> = [
   ["/i/account_analytics/spaces/900000700003"],
   ["/i/account_analytics/live"],
   ["/i/account_analytics/live/900000800001"],
+  ["/i/account_analytics/live/900000800002"],
 ];
 
 it("answers every request X's pages make with the batch the made-up fixtures hold, as the capture reads it", () => {

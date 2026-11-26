@@ -410,6 +410,16 @@ test("Without Premium X sends no claims: Analyze reads X's upsell on X's page an
       false,
       false,
     ]);
+    // X live reads its own page's upsell, and shows X's paywall from it.
+    await lone.app.evaluate((hash) => void (location.hash = hash), "#/analyze?tab=x-live");
+    await lone.app.getByRole("heading", { name: "X live", exact: true }).waitFor();
+    await expect
+      .poll(() => lone.engine<string>("location.pathname"))
+      .toBe("/i/account_analytics/live");
+    await expect
+      .poll(() => lone.app.locator("main").innerText())
+      .toContain("Advanced analytics with Plus");
+    expect(lone.mock.reads.map((r) => r.op)).not.toContain("liveOverviewProviderQuery");
   } finally {
     await lone.close();
   }

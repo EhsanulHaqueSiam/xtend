@@ -6,7 +6,7 @@ import { page, userEvent } from "vite-plus/test/browser";
 import "~/index.css";
 import { installFakeBridge } from "../../../test/fakeBridge";
 import { render } from "../../../test/render";
-import { emptyEngine, updateEngine } from "../../state/engine";
+import { ANALYTICS_CLAIM, emptyEngine, updateEngine } from "../../state/engine";
 import { markXReady, registerXWebview, type XWebview } from "../../state/x";
 import { EngineSync } from "../xnative/EngineSync";
 import { ENDED_BROADCAST, synth } from "../xnative/engineFixtures";
@@ -14,7 +14,7 @@ import { XLiveSection } from "./XLive";
 
 const batches = synth().accountAnalytics!.batches;
 const list = batches.find((b) => b.op === "liveOverviewProviderQuery")!;
-const details = batches.find((b) => b.op === "liveDetailsQuery")!;
+const details = batches.find((b) => b.op === "liveDetailsQuery" && b.key === ENDED_BROADCAST)!;
 const [stats] = batches.flatMap((b) =>
   b.liveAnalytics?.kind === "broadcast" ? [b.liveAnalytics.broadcast] : [],
 );
@@ -27,15 +27,21 @@ const listPage = (broadcasts: ReadonlyArray<EngineBroadcastRow>, more: boolean):
 });
 const fixtureRows = list.liveAnalytics?.kind === "list" ? list.liveAnalytics.broadcasts : [];
 
-/** The section on a fresh store, the engine a fake webview whose scripts the test reads. */
-async function open() {
+/**
+ * The section on a fresh store, the engine a fake webview whose scripts the test reads; `upsell` is
+ * what X's Live page shows: its upsell (true), its list (false), or neither yet (null).
+ */
+async function open(upsell: boolean | null = null) {
   updateEngine(() => emptyEngine);
   const bridge = installFakeBridge();
   const scripts: Array<string> = [];
   registerXWebview({
     getURL: () => "https://x.com/home",
     loadURL: () => Promise.resolve(),
-    executeJavaScript: (code: string) => (scripts.push(code), Promise.resolve(null)),
+    executeJavaScript: (code: string) => (
+      scripts.push(code),
+      Promise.resolve(code.includes("Upgrade to continue") ? upsell : null)
+    ),
   } as unknown as XWebview);
   markXReady();
   const container = document.createElement("div");
@@ -108,6 +114,12 @@ it("lists the user's broadcasts newest first in X's words, X's filters narrow th
   ]);
   // X's Live Viewers by the minute, with its peak.
   await expect.element(screen.getByText("Peak Viewers: 120")).toBeVisible();
+});
+
+it("shows X's paywall when X's Live page shows its upsell, even with X's claims letting the account in", async () => {
+  await using x = await open(true);
+  x.bridge.emitEngine({ ...noClaims, claims: [ANALYTICS_CLAIM] });
+  await expect.element(x.screen.getByText("Advanced analytics with Plus")).toBeVisible();
 });
 
 it("says when X has more than its first page, under the list and in a filter with none, and opens X's page for all", async () => {

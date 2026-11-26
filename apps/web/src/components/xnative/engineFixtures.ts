@@ -1568,6 +1568,10 @@ export function synth(): Readonly<Record<string, Fixture>> {
           more: false,
         },
       }),
+      // A broadcast since deleted: X answers its page with none.
+      batch("liveDetailsQuery", office.broadcastId, [], {
+        liveAnalytics: { kind: "unavailable", broadcastId: office.broadcastId },
+      }),
       batch("liveDetailsQuery", ENDED_BROADCAST, [], {
         liveAnalytics: {
           kind: "broadcast",
