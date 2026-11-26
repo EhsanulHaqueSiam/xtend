@@ -964,4 +964,6 @@ it("ends by the deadline whatever DevTools does: a late answer lets no input go,
     (slow.result as { notAttempted?: boolean }).notAttempted,
   ]).toEqual(["the edit ran out of its time after its press; it may have gone through", undefined]);
   expect(slow.loads).toEqual([PAGE, PAGE]);
+  // The press held down is let go off Update, so it never completes into a click there.
+  expect(slow.log.filter((l) => l === "press Update" || l.startsWith("create"))).toEqual([]);
 });

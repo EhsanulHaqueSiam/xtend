@@ -683,13 +683,18 @@ const newestIn = (per: PerSurface<string>, latest: ReadonlyMap<string, string>) 
   );
 
 /**
+ * The newest version of post `id` the store has (see `latest`), or `id`: what a post's page, its
+ * thread and a reply under it go by.
+ */
+export const newestOf = (state: EngineState, id: string) => state.latest.get(id) ?? id;
+
+/**
  * A post screen's thread for `id` on its `surface`: X's list, and where in it the post itself is,
- * as its newest version the store has (see `latest`); index -1 with the post alone until X's
- * thread is in.
+ * as its newest version; index -1 with the post alone until X's thread is in.
  */
 export function threadOf(state: EngineState, surface: AnySurface, id: string) {
   const posts = at(state.lists, surface).flatMap((pid) => postOn(state, surface, pid) ?? []);
-  const newest = state.latest.get(id) ?? id;
+  const newest = newestOf(state, id);
   const index = posts.findIndex((p) => p.postId === newest);
   return { posts, index, focal: index === -1 ? state.posts.get(newest) : posts[index] };
 }
@@ -1388,7 +1393,7 @@ function promptsOf(state: EngineState, batch: EngineBatch): EngineState["prompts
  */
 function placeCreated(state: EngineState, post: EnginePost): EngineState {
   if (post.edits.length > 1) return state;
-  const parentId = post.replyToId;
+  const parentId = post.replyToId === null ? null : newestOf(state, post.replyToId);
   if (parentId === null) {
     const surfaces: ReadonlyArray<AnySurface> = [
       "forYou",

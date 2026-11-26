@@ -50,6 +50,7 @@ import {
   sawAnalyticsRange,
   showWaiting,
   surfacesOf,
+  newestOf,
   threadOf,
   userByHandle,
   youFollow,
@@ -1271,8 +1272,15 @@ it("puts the user's new reply under the post it answers, a new post on top of Ho
   );
   expect(at(state.lists, "following")).toEqual(shown.map((id) => (id === "13" ? "14" : id)));
   expect([state.latest.get("14"), state.latest.get("10")]).toEqual([undefined, "14"]);
-  // The original's own page shows the newest version too.
+  // The original's own page shows the newest version too, with its thread: a reply goes under the
+  // newest version whichever version it names.
   expect(threadOf(state, postSurface("10", "Relevance"), "10").focal?.postId).toBe("14");
+  state = mergeBatch(
+    state,
+    batch("CreateTweet", [{ ...post("15", "2026-11-01T00:00:00Z"), replyToId: "10" }]),
+  );
+  const page = postSurface(newestOf(state, "10"), "Relevance");
+  expect(threadOf(state, page, "10").posts.map((p) => p.postId)).toEqual(["14", "15"]);
   // An answer that tells nothing new keeps the same versions.
   expect(
     mergeBatch(state, batch("TweetDetail", [{ ...quote, postId: "11", edits: ["10", "11"] }]))

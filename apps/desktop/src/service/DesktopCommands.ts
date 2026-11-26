@@ -1200,14 +1200,13 @@ export async function editThroughComposer(
   const page = `https://x.com/i/web/status/${id}`;
   const late = "the edit ran out of its time";
   // The edit's DevTools: every call ends by the deadline, and none starts or goes on after it, so
-  // a late answer never lets the next input go. The press still down, if any, is kept to release.
-  let down: { x: number; y: number } | null = null;
+  // a late answer never lets the next input go. Whether a press is still down, to let it go.
+  let down = false;
   const cdp: Cdp = async (method, params) => {
     if (Date.now() >= deadline) throw new Error(late);
-    if (method === "Input.dispatchMouseEvent" && params?.type === "mousePressed")
-      down = { x: Number(params.x), y: Number(params.y) };
+    if (method === "Input.dispatchMouseEvent" && params?.type === "mousePressed") down = true;
     const answer = await until(raw(method, params), deadline, late);
-    if (method === "Input.dispatchMouseEvent" && params?.type === "mouseReleased") down = null;
+    if (method === "Input.dispatchMouseEvent" && params?.type === "mouseReleased") down = false;
     if (Date.now() >= deadline) throw new Error(late);
     return answer;
   };
@@ -1316,15 +1315,13 @@ export async function editThroughComposer(
       await sleep(POLL_MS);
     }
   } catch (error) {
-    // No press stays down, whatever stopped the edit.
-    if (down !== null) {
-      const at: { x: number; y: number } = down;
-      void raw("Input.dispatchMouseEvent", {
-        type: "mouseReleased",
-        ...at,
-        button: "left",
-        clickCount: 1,
-      }).catch(() => {});
+    // No press stays down, whatever stopped the edit: let go off the control, at the page's
+    // corner, so the press never completes into a click on it.
+    if (down) {
+      const corner = { x: 0, y: 0, button: "left", clickCount: 1 };
+      void raw("Input.dispatchMouseEvent", { type: "mouseMoved", ...corner })
+        .then(() => raw("Input.dispatchMouseEvent", { type: "mouseReleased", ...corner }))
+        .catch(() => {});
     }
     if (Date.now() < deadline) throw error;
     // Past the deadline: X's page loads again so the next command starts clean.

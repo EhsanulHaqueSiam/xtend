@@ -13,6 +13,7 @@ import { XEmpty } from "../components/xnative/XRows";
 import {
   at,
   engineAtom,
+  newestOf,
   postSurface,
   REPLY_SORTS,
   type ReplySort as Sort,
@@ -30,19 +31,21 @@ function PostScreen() {
   const openPost = useOpenPost();
   // X's page carries the reply order; each order's thread sits under its own key.
   const param = REPLY_SORT[sort].param;
-  const url = `https://x.com/${h}/status/${id}${param === null ? "" : `?sort_replies=${param}`}`;
+  // An edited post's page is its newest version's: X's page for it, its thread, a reply under it.
+  const newest = newestOf(engine, id);
+  const url = `https://x.com/${h}/status/${newest}${param === null ? "" : `?sort_replies=${param}`}`;
   // X's router, so a thread X still holds shows at once.
   const open = useCallback(() => void xGo(url), [url]);
   // "Load again": a full load of the same page, since X's router does nothing on the page it shows.
   const reload = () => void xNavigate(url);
-  const surface = postSurface(id, sort);
+  const surface = postSurface(newest, sort);
   // The pick shows at once; X's page may still be drawing the post its sort sits under.
   const [picked, setPicked] = useState<Sort | null>(null);
   // X's own menu first, so the engine already shows the new order when the route asks for it.
   const sortBy = (next: Sort) => {
     setPicked(next);
     void xSortReplies(
-      { postId: id, handle: h },
+      { postId: newest, handle: h },
       REPLY_SORT[next],
       REPLY_SORTS.map((s) => REPLY_SORT[s].label),
     )
@@ -63,7 +66,6 @@ function PostScreen() {
   // A reply through the session left the engine on X's composer, so X's router brings the thread
   // back fresh, the reply already in place. One through the API left it here: load the thread again.
   const afterReply = () => void xGo(url).then((moved) => moved || refreshScreen());
-  // An edited post's page shows its newest version.
   const { posts, index, focal } = threadOf(engine, surface, id);
   const above = index === -1 ? [] : posts.slice(0, index);
   const below = index === -1 ? [] : posts.slice(index + 1);
@@ -95,7 +97,7 @@ function PostScreen() {
             under={
               <div className="flex items-center pt-2.5 empty:hidden">
                 {/* Once X's first fetch of the thread is in: X drops a sort picked while it is out. */}
-                {REPLY_SORTS.some((s) => at(engine.lists, postSurface(id, s)).length > 0) ? (
+                {REPLY_SORTS.some((s) => at(engine.lists, postSurface(newest, s)).length > 0) ? (
                   <ReplySort value={picked ?? sort} onChange={sortBy} />
                 ) : null}
                 {focal.metrics.quotes === 0 ? null : (
