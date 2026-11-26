@@ -648,19 +648,20 @@ export const emptyEngine: EngineState = {
 const later = (a: string, b: string) => a.length > b.length || (a.length === b.length && a > b);
 
 /**
- * `known` with each edited post's versions (its history in `posts`) pointing at the newest id any
- * history named. A late copy of an older version never moves one back; `known` itself when
- * nothing changed.
+ * `known` with each edited post's versions (its history in `posts`) pointing at the newest one
+ * the store `has`: a version X named but never sent stays out until it comes. A late copy of an
+ * older version never moves one back; `known` itself when nothing changed.
  */
 function newestVersions(
   known: ReadonlyMap<string, string>,
   posts: ReadonlyArray<EnginePost>,
+  has: ReadonlyMap<string, EnginePost>,
 ): ReadonlyMap<string, string> {
   let copy: Map<string, string> | null = null;
   for (const p of posts) {
     if (p.edits.length < 2) continue;
-    const newest = p.edits
-      .map((id) => (copy ?? known).get(id) ?? id)
+    const newest = [p.postId, ...p.edits.map((id) => (copy ?? known).get(id) ?? id)]
+      .filter((id) => has.has(id))
       .reduce((a, b) => (later(b, a) ? b : a));
     for (const id of p.edits)
       if (id !== newest && (copy ?? known).get(id) !== newest)
@@ -801,7 +802,7 @@ export function mergeBatch(state: EngineState, batch: EngineBatch): EngineState 
           ),
         );
   // An edit takes its earlier versions' place in every list, whichever of X's answers names it.
-  const latest = newestVersions(state.latest, batch.posts);
+  const latest = newestVersions(state.latest, batch.posts, posts);
   const merged: EngineState = {
     ...state,
     posts,

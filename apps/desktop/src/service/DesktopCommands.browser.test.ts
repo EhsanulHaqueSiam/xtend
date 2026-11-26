@@ -413,7 +413,7 @@ const run = async (
     { loadURL: async () => {} },
     domCdp(log),
     command,
-    async () => ({ postId: "777", previous: null }),
+    async () => ({ postId: "777" }),
     T0 + 60_000,
   ).catch((error: unknown) => error);
   await vi.runAllTimersAsync();
@@ -771,11 +771,12 @@ function fakeEditPage(
   const send = () => {
     const text = layers.querySelector('[data-testid="tweetTextarea_0"]')?.textContent;
     log.push(`create ${text}`);
-    // This press's own create request, then X's answers to an earlier request and to this one.
-    created.request(
-      "r1",
-      (history.state as { state: { previousTweetId: string } }).state.previousTweetId,
-    );
+    // X's create for what its composer edits (an earlier retry of another post first), then
+    // X's answers to that retry and to this one.
+    const previous = (history.state as { state: { previousTweetId: string } }).state
+      .previousTweetId;
+    created.request("r0", { tweet_text: "Earlier post" });
+    created.request("r1", { tweet_text: text, edit_options: { previous_tweet_id: previous } });
     created.answered("r0", "900");
     created.answered("r1", "703");
   };

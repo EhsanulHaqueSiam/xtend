@@ -134,7 +134,8 @@ afterEach(() => {
 it("sends the posts in GraphQL responses the window received, base64 bodies too, and nothing else", async () => {
   const created: Array<string> = [];
   start({
-    onCreateRequest: (requestId, previous) => created.push(`request ${requestId} ${previous}`),
+    onCreateRequest: (requestId, variables) =>
+      created.push(`request ${requestId} ${JSON.stringify(variables)}`),
     onCreatedPost: (requestId, postId) => created.push(`answer ${requestId} ${postId}`),
   });
   debug.received("1", `${GRAPHQL}/Viewer`, {
@@ -160,8 +161,8 @@ it("sends the posts in GraphQL responses the window received, base64 bodies too,
   });
   debug.finished("5");
   await vi.waitFor(() => expect(created).toEqual(["answer 4 9", "answer 5 10"]));
-  // Each create request as it goes, by its id: an edit names the version it replaces, a new post
-  // none, and a body the capture cannot read says neither.
+  // Each create request as it goes, by its id, with its variables; a body the capture cannot read
+  // has none.
   const ask = (requestId: string, postData: string | undefined) =>
     debug.emit("message", {}, "Network.requestWillBeSent", {
       requestId,
@@ -178,8 +179,8 @@ it("sends the posts in GraphQL responses the window received, base64 bodies too,
     expect(created).toEqual([
       "answer 4 9",
       "answer 5 10",
-      "request 6 9",
-      "request 7 null",
+      'request 6 {"edit_options":{"previous_tweet_id":"9"}}',
+      'request 7 {"tweet_text":"new"}',
       "request 8 undefined",
       "answer 6 11",
     ]),

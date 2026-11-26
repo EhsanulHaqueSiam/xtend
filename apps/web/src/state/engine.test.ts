@@ -1254,6 +1254,16 @@ it("puts the user's new reply under the post it answers, a new post on top of Ho
     ]),
   );
   expect(at(showWaiting(state, "following").lists, "following")).toEqual(["13", "4", "3"]);
+  // An answer naming a version the store never got (14) keeps the newest it has, then the
+  // newer one once X sends it.
+  const only13 = { ...quote, postId: "13", edits: ["10", "11", "13", "14"] };
+  const shown = at(state.lists, "following");
+  state = mergeBatch(state, batch("HomeLatestTimeline", [only13], { cursor: "next" }));
+  expect(at(state.lists, "following").map((id) => postOn(state, "following", id)?.postId)).toEqual(
+    shown,
+  );
+  state = mergeBatch(state, batch("TweetDetail", [{ ...only13, postId: "14" }], { key: "14" }));
+  expect(at(state.lists, "following")).toEqual(shown.map((id) => (id === "13" ? "14" : id)));
   // An answer that tells nothing new keeps the same versions.
   expect(
     mergeBatch(state, batch("TweetDetail", [{ ...quote, postId: "11", edits: ["10", "11"] }]))

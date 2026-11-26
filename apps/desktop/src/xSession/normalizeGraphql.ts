@@ -264,19 +264,11 @@ export function readCreatedPostId(body: unknown): string | undefined {
   return id !== undefined && X_ID.test(id) ? id : undefined;
 }
 
-/**
- * What X's create request body says: the post an edit replaces (edit_options), null for a new
- * post, undefined for a body that is not there or names neither.
- */
-export function readEditedPostId(postData: unknown): string | null | undefined {
+/** The variables of X's create request body; undefined when the body is not there or not JSON. */
+export function readCreateVariables(postData: unknown): Json | undefined {
   try {
     const variables: unknown = JSON.parse(String(postData)).variables;
-    if (!isRecord(variables)) return undefined;
-    if (variables.edit_options === undefined) return null;
-    const id = isRecord(variables.edit_options)
-      ? variables.edit_options.previous_tweet_id
-      : undefined;
-    return typeof id === "string" && X_ID.test(id) ? id : undefined;
+    return isRecord(variables) ? variables : undefined;
   } catch {
     return undefined;
   }

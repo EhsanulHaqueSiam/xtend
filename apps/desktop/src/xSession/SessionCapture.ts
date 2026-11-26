@@ -5,12 +5,13 @@ import type { EngineBatch, GrokCapture, ObservationBatch, ObservedPost } from "@
 import type * as Electron from "electron";
 
 import {
+  type Json,
   isCreateTweetOperation,
   isGraphqlUrl,
   isViewerOperation,
   normalizeGraphqlResponse,
   readCreatedPostId,
-  readEditedPostId,
+  readCreateVariables,
   readViewerHandle,
   sourceFromOperation,
 } from "./normalizeGraphql.ts";
@@ -52,10 +53,10 @@ export interface SessionCaptureOptions {
   /** Every response's posts as Xtend's own X screens draw them, tagged with X's operation. */
   readonly onRender?: (batch: EngineBatch) => void;
   /**
-   * X's create request (CreateTweet, CreateNoteTweet) as it goes, by its DevTools id: the post an
-   * edit replaces (edit_options), null for a new post, undefined when its body could not be read.
+   * X's create request (CreateTweet, CreateNoteTweet) as it goes, by its DevTools id, with its
+   * variables; undefined when its body could not be read.
    */
-  readonly onCreateRequest?: (requestId: string, previous: string | null | undefined) => void;
+  readonly onCreateRequest?: (requestId: string, variables: Json | undefined) => void;
   /** The id of the post X's answer to that create request made. */
   readonly onCreatedPost?: (requestId: string, postId: string) => void;
   /**
@@ -111,7 +112,7 @@ export function attachSessionCapture(
         if (postData.size > MAX_PENDING) postData.delete(postData.keys().next().value!);
       }
       if (isCreateTweetOperation(url))
-        options.onCreateRequest?.(params.requestId, readEditedPostId(request?.postData));
+        options.onCreateRequest?.(params.requestId, readCreateVariables(request?.postData));
       if (isGrokStreamUrl(url)) {
         streamChats.set(params.requestId, grokConversation(url, request?.postData));
         if (streamChats.size > MAX_PENDING) streamChats.delete(streamChats.keys().next().value!);

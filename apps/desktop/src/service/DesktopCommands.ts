@@ -63,41 +63,73 @@ export interface DesktopCommandsOptions {
   readonly log: (message: string, detail?: unknown) => void;
 }
 
-/** X's answer to a create request: its post, and what the request said (see `onCreateRequest`). */
+/** The post X's answer to a command's own create request made. */
 export interface CreatedPost {
   readonly postId: string;
-  readonly previous: string | null | undefined;
 }
 
 /**
+ * What a command's press sends X: its text, the post it replies to (absent: not checked, as for
+ * an edit), and the post it edits (null for a new post).
+ */
+export interface CreateExpected {
+  readonly text: string;
+  readonly replyTo?: string | null;
+  readonly previous: string | null;
+}
+
+// The start of a text as X's composer sends it: whitespace as one space, links aside (X may make a
+// pasted post link its quote).
+const opening = (text: string) =>
+  text
+    .replace(/https?:\/\/\S+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 40);
+const idIn = (value: unknown, field: string) => {
+  const id = typeof value === "object" && value !== null ? Reflect.get(value, field) : undefined;
+  return typeof id === "string" ? id : null;
+};
+const sends = (want: CreateExpected, variables: Readonly<Record<string, unknown>>) =>
+  typeof variables.tweet_text === "string" &&
+  opening(variables.tweet_text) === opening(want.text) &&
+  (want.replyTo === undefined || idIn(variables.reply, "in_reply_to_tweet_id") === want.replyTo) &&
+  idIn(variables.edit_options, "previous_tweet_id") === want.previous;
+
+/**
  * X's create requests (CreateTweet, CreateNoteTweet) and their answers. A command listens just
- * before its press and takes the first create request sent after that, the one its press started,
- * and only that request's answer; once it ends (`signal`) it takes nothing.
+ * before its press and takes the first create request sent after that whose variables are what the
+ * press sends, and only that request's answer; once it ends (`signal`) it takes nothing.
  */
 export function createdPosts() {
   const waiting = new Set<{
-    request?: { readonly id: string; readonly previous: string | null | undefined };
+    readonly want: CreateExpected;
+    request?: string;
     readonly take: (created: CreatedPost) => void;
   }>();
   return {
-    next: (signal: AbortSignal) =>
+    next: (want: CreateExpected, signal: AbortSignal) =>
       new Promise<CreatedPost>((take) => {
         if (signal.aborted) return;
-        const listener: {
-          request?: { id: string; previous: string | null | undefined };
-          take: typeof take;
-        } = { take };
+        const listener: { want: CreateExpected; request?: string; take: typeof take } = {
+          want,
+          take,
+        };
         waiting.add(listener);
         signal.addEventListener("abort", () => waiting.delete(listener), { once: true });
       }),
-    request: (id: string, previous: string | null | undefined) => {
-      for (const listener of waiting) listener.request ??= { id, previous };
+    // A body the capture could not read matches no command: that press's outcome stays unknown.
+    request: (id: string, variables: Readonly<Record<string, unknown>> | undefined) => {
+      if (variables === undefined) return;
+      for (const listener of waiting)
+        if (listener.request === undefined && sends(listener.want, variables))
+          listener.request = id;
     },
     answered: (id: string, postId: string) => {
       for (const listener of waiting)
-        if (listener.request?.id === id) {
+        if (listener.request === id) {
           waiting.delete(listener);
-          listener.take({ postId, previous: listener.request.previous });
+          listener.take({ postId });
         }
     },
   };
@@ -399,11 +431,12 @@ const LANDS_ON = `function (x, y) {
 }`;
 
 /**
- * Presses the node's middle as a mouse does. Every step before the press ends by `deadline`, and
- * the press goes only while the node is what it lands on and the deadline has not passed; else it
- * is refused with nothing pressed.
+ * Readies a press of the node's middle, as a mouse does, and answers the press. Every step ends by
+ * `deadline`, and the press goes only while the node is what it lands on and the deadline has not
+ * passed; else it is refused with nothing pressed. A press released after the deadline is finished
+ * all the same (one left down is worse) but may have counted, so it fails as such.
  */
-async function click(cdp: Cdp, nodeId: number, deadline = Infinity): Promise<void> {
+async function aim(cdp: Cdp, nodeId: number, deadline = Infinity): Promise<() => Promise<void>> {
   const late = "x.com's page did not answer before the command's deadline";
   const { x, y } = await (async () => {
     const { model } = (await until(cdp("DOM.getBoxModel", { nodeId }), deadline, late)) as {
@@ -430,9 +463,17 @@ async function click(cdp: Cdp, nodeId: number, deadline = Infinity): Promise<voi
   });
   const press = (type: string) =>
     cdp("Input.dispatchMouseEvent", { type, x, y, button: "left", clickCount: 1 });
-  await press("mousePressed");
-  await press("mouseReleased");
+  return async () => {
+    await press("mousePressed");
+    await press("mouseReleased");
+    if (Date.now() >= deadline)
+      throw new Error("x.com's press ended after the command's deadline; it may have gone through");
+  };
 }
+
+/** Presses the node as `aim` readies it. */
+const click = async (cdp: Cdp, nodeId: number, deadline = Infinity) =>
+  (await aim(cdp, nodeId, deadline))();
 
 const enabled = (attrs: Record<string, string>) =>
   attrs["aria-disabled"] !== "true" && !("disabled" in attrs);
@@ -630,6 +671,7 @@ async function fillPoll(
     await click(
       cdp,
       await control(cdp, X_COMPOSER.choice(i + 1), `poll choice ${i + 1}`, deadline),
+      deadline,
     );
     await cdp("Input.insertText", { text: option });
   }
@@ -1037,16 +1079,14 @@ export async function postThroughComposer(
   // X's answer to the create request this press starts, and none once this command ends.
   const listening = new AbortController();
   try {
-    const created = nextCreatedPost(listening.signal);
-    await click(cdp, button, deadline);
-    const { postId, previous } = await until(
-      created,
-      step(CREATED_TIMEOUT_MS),
-      "x.com did not confirm the post",
+    const press = await aim(cdp, button, deadline);
+    const created = nextCreatedPost(
+      { text: command.text, replyTo: command.replyToPostId ?? null, previous: null },
+      listening.signal,
     );
-    // A body the capture could not read (undefined) is still this press's own request.
-    if (typeof previous === "string") throw new Error("x.com's answer was an edit, not this post");
-    return postId;
+    await press();
+    return (await until(created, step(CREATED_TIMEOUT_MS), "x.com did not confirm the post"))
+      .postId;
   } finally {
     listening.abort();
   }
@@ -1231,10 +1271,11 @@ export async function editThroughComposer(
       throw unchanged(error);
     });
     const got: { created?: CreatedPost } = {};
-    void nextCreatedPost(listening.signal).then((created) => {
+    const press = await aim(cdp, button, deadline);
+    void nextCreatedPost({ text: command.text, previous: id }, listening.signal).then((created) => {
       got.created = created;
     });
-    await click(cdp, button, deadline);
+    await press();
     const confirmBy = step(CREATED_TIMEOUT_MS);
     let confirmed = false;
     while (got.created === undefined) {
@@ -1250,8 +1291,6 @@ export async function editThroughComposer(
       }
       await sleep(POLL_MS);
     }
-    // Unknown (a body the capture could not read) is not confirmed either: X may have saved it.
-    if (got.created.previous !== id) throw new Error("x.com's answer did not name this edit");
     return got.created.postId;
   } finally {
     listening.abort();
@@ -1419,6 +1458,7 @@ async function articleThroughEditor(
       await click(
         cdp,
         await waitForNode(cdp, X_ARTICLE.coverApply, step(COMPOSER_TIMEOUT_MS), enabled),
+        deadline,
       );
       // The upload may take what is left.
       await waitForNode(cdp, X_ARTICLE.coverSaved, deadline);
