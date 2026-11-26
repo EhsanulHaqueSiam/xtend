@@ -82,12 +82,13 @@ const batch = (op: string, posts: ReadonlyArray<EnginePost>) => ({
   viewer: null,
 });
 
-/** X's engine: the post's "..." lists X's own rows, Edit post among them; presses are counted. */
+/** X's engine: the post's "..." lists X's own rows, Edit post among them; presses and loads are kept. */
 const engine = () => {
   const pressed: Array<string> = [];
+  const loaded: Array<string> = [];
   registerXWebview({
     getURL: () => "https://x.com/i/likes",
-    loadURL: () => Promise.resolve(),
+    loadURL: (url: string) => (loaded.push(url), Promise.resolve()),
     executeJavaScript: (code: string) => {
       if (code.includes("const labels"))
         return Promise.resolve(["Delete", "Edit post", "Pin to your profile"]);
@@ -96,7 +97,7 @@ const engine = () => {
     },
   } as unknown as XWebview);
   markXReady();
-  return pressed;
+  return { pressed, loaded };
 };
 
 /** How X's Edit post went, per Update: refused, Update pressed with no answer from X, or saved. */
@@ -139,7 +140,7 @@ const openEdit = async (row: ReturnType<typeof page.getByRole>) => {
 
 it("turns the post's text into an editor for X's Edit post: Cancel, Update through the session, an error that keeps the text, and X's unconfirmed save", async () => {
   const edits: Array<PostEdit> = [];
-  engine();
+  const { loaded } = engine();
   try {
     await using screen = await screenWith(true, edits, ["refused", "unsure", "saved"]);
     bridge.emitEngine(batch("Likes", [post("60", "Shipping today")]));
@@ -179,7 +180,12 @@ it("turns the post's text into an editor for X's Edit post: Cancel, Update throu
     await openEdit(row);
     await userEvent.fill(box, `Shipping today ${LINK} for real`);
     await update.click();
-    await expect.element(box).not.toBeInTheDocument();
+    // Saved, through a desktop whose capture this window never saw: its engine opens the new
+    // version once, and the editor waits for X's answer there.
+    await expect
+      .element(row.getByRole("status"))
+      .toHaveTextContent("Updated on X; reload the post to see it");
+    expect(loaded).toEqual(["https://x.com/you/status/61"]);
     const sent = {
       postId: "60",
       text: `Shipping today ${LINK} for real`,
@@ -187,9 +193,9 @@ it("turns the post's text into an editor for X's Edit post: Cancel, Update throu
     };
     expect(edits).toEqual([sent, sent, sent]);
 
-    // X's answer to the edit takes the post's place, with "Last edited".
+    // X's answer on that page takes the post's place, with "Last edited".
     bridge.emitEngine(
-      batch("CreateTweet", [
+      batch("TweetDetail", [
         post("61", "Shipping today for real", {
           edits: ["60", "61"],
           entities: { urls: [], mentions: [], hashtags: [], cashtags: [] },
@@ -197,6 +203,7 @@ it("turns the post's text into an editor for X's Edit post: Cancel, Update throu
         }),
       ]),
     );
+    await expect.element(box).not.toBeInTheDocument();
     await expect.element(screen.getByText("Shipping today for real")).toBeVisible();
     await expect.element(screen.getByText(/^Last edited /)).toBeVisible();
     expect(screen.getByRole("article").elements()).toHaveLength(1);
@@ -206,7 +213,7 @@ it("turns the post's text into an editor for X's Edit post: Cancel, Update throu
 });
 
 it("with session actions off, X's Edit post opens no editor, as X's other rows press nothing", async () => {
-  const pressed = engine();
+  const { pressed } = engine();
   try {
     await using screen = await screenWith(false, [], []);
     bridge.emitEngine(batch("Likes", [post("60", "Shipping today")]));

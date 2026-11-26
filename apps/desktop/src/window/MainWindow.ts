@@ -456,7 +456,8 @@ export function createMainWindow(options: MainWindowOptions) {
       },
       onRender: (batch) => toApp(ENGINE_CHANNEL, batch),
       onGrok: (capture) => toApp(GROK_CHANNEL, capture),
-      onCreatedPost: created.created,
+      onCreateRequest: created.request,
+      onCreatedPost: created.answered,
       fallbackViewer: () => navViewer,
     });
 

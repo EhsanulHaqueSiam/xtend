@@ -1,11 +1,12 @@
-import { useAtomSet, useAtomValue } from "@effect/atom-react";
+import { RegistryContext, useAtomSet, useAtomValue } from "@effect/atom-react";
 import { charCount, type EnginePost, type TextStyle } from "@xtend/contracts";
 import * as Exit from "effect/Exit";
-import { useState } from "react";
+import { useContext, useState } from "react";
 
 import { editPostAtom } from "../../state/compose";
-import { canFormatAtom } from "../../state/engine";
+import { canFormatAtom, engineAtom } from "../../state/engine";
 import { usePostLimit } from "../../state/settings";
+import { xNavigate } from "../../state/x";
 import { failText } from "../compose/AssistPanel";
 import { FormatTools, StyledArea, styleKey } from "../compose/FormatTools";
 import { plainEntities, shiftStyles, sliceStyles, toggleStyle } from "../compose/textStyles";
@@ -44,13 +45,15 @@ export function PostEditor({
   const [caret, setCaret] = useState({ start: 0, end: 0 });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  // Update was pressed but X's answer never came: X may have saved it, so no second Update.
-  const [unsure, setUnsure] = useState(false);
+  // After Update, while this window shows no new version: X may have saved it (its answer never
+  // came), or saved it through another desktop. Either way, no second Update.
+  const [status, setStatus] = useState<string | null>(null);
+  const registry = useContext(RegistryContext);
 
   const length = charCount(text);
   // X keeps Update off until the post changes.
   const changed = text !== start.text || JSON.stringify(styles) !== JSON.stringify(start.styles);
-  const ready = !busy && !unsure && changed && text.trim() !== "" && length <= limit;
+  const ready = !busy && status === null && changed && text.trim() !== "" && length <= limit;
   const save = async () => {
     if (!ready) return;
     setBusy(true);
@@ -65,9 +68,14 @@ export function PostEditor({
     });
     setBusy(false);
     if (Exit.isFailure(exit)) return setError(failText(exit.cause));
-    if (exit.value.postId === null) return setUnsure(true);
-    setToast({ text: "Updated on X" });
-    onDone();
+    const saved = exit.value.postId;
+    if (saved === null) return setStatus("X may have saved this edit; check the post");
+    if (registry.get(engineAtom).posts.has(saved))
+      return (setToast({ text: "Updated on X" }), onDone());
+    // X's answer reached another desktop: this window's engine opens the new version once, a read
+    // for this click, and X's answer there takes the post's place.
+    setStatus("Updated on X; reload the post to see it");
+    void xNavigate(`https://x.com/${post.author.handle}/status/${saved}`);
   };
 
   const left =
@@ -149,11 +157,11 @@ export function PostEditor({
           {error}
         </p>
       )}
-      {unsure ? (
+      {status === null ? null : (
         <p role="status" className="text-xs text-muted-foreground">
-          X may have saved this edit; check the post
+          {status}
         </p>
-      ) : null}
+      )}
     </div>
   );
 }

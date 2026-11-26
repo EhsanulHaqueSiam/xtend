@@ -1240,6 +1240,25 @@ it("puts the user's new reply under the post it answers, a new post on top of Ho
   );
   expect(at(showWaiting(state, "following").lists, "following")).toEqual(["11", "4", "3"]);
   expect(at(state.lists, "post:1")).toEqual(["1", "12", "2"]);
+  // A second edit, then a late copy of the first edit (its history ends at 11) listing the
+  // original: X's ids grow, so every version still resolves to the newest, 13.
+  state = mergeBatch(
+    state,
+    batch("CreateTweet", [{ ...quote, postId: "13", edits: ["10", "11", "13"] }]),
+  );
+  state = mergeBatch(
+    state,
+    batch("HomeLatestTimeline", [
+      { ...quote, edits: ["10"] },
+      { ...quote, postId: "11", edits: ["10", "11"] },
+    ]),
+  );
+  expect(at(showWaiting(state, "following").lists, "following")).toEqual(["13", "4", "3"]);
+  // An answer that tells nothing new keeps the same versions.
+  expect(
+    mergeBatch(state, batch("TweetDetail", [{ ...quote, postId: "11", edits: ["10", "11"] }]))
+      .latest,
+  ).toBe(state.latest);
 });
 
 it("keeps dismissed trends hidden across stale captures of their tab, reconciles removal, and restores on Undo", () => {

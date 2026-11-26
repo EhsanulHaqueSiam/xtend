@@ -5,6 +5,7 @@ import type { XPost } from "@xtend/contracts";
 import type { OverlaySave } from "../ipc/channels.ts";
 import {
   commandRunner,
+  type CreatedPost,
   createdPosts,
   dmThroughComposer,
   likeOnPage,
@@ -47,6 +48,11 @@ it("types into the compose modal, not the inline composer behind it, and presses
           return { attributes: ["aria-disabled", "true"] };
         }
         return { attributes: [] };
+      case "DOM.resolveNode":
+        return { object: { objectId: String(params.nodeId) } };
+      // The node is what a press at its middle lands on.
+      case "Runtime.callFunctionOn":
+        return { result: { value: true } };
       case "DOM.getBoxModel":
         return { model: { content: BOXES[Number(params.nodeId)] } };
       case "Input.dispatchMouseEvent":
@@ -69,7 +75,7 @@ it("types into the compose modal, not the inline composer behind it, and presses
     { type: "sessionPost", text: "hello", mediaPaths: ["/tmp/a.png"], replyToPostId: "42" },
     () => {
       log.push("listening for CreateTweet");
-      return Promise.resolve("777");
+      return Promise.resolve({ postId: "777", previous: null });
     },
     T0 + 60_000,
   );
@@ -82,8 +88,9 @@ it("types into the compose modal, not the inline composer behind it, and presses
     "press 200,70",
     "type hello",
     "files 22 /tmp/a.png",
-    "listening for CreateTweet",
+    // Listening only once the upload let Post go, just before the press that sends it.
     "button disabled",
+    "listening for CreateTweet",
     "press 530,218",
   ]);
 });
@@ -110,6 +117,11 @@ const composer = (log: Array<string>, uploadedAt = 0) => ({
               ? ["aria-disabled", "true"]
               : [],
         };
+      case "DOM.resolveNode":
+        return { object: { objectId: String(params.nodeId) } };
+      // The node is what a press at its middle lands on.
+      case "Runtime.callFunctionOn":
+        return { result: { value: true } };
       case "DOM.getBoxModel":
         return { model: { content: BOXES[Number(params.nodeId)] } };
       case "Input.dispatchMouseEvent":
@@ -139,8 +151,8 @@ it("waits for a long video upload, past the 15s the composer itself gets", async
     navigate: () => {},
     // X answers a second after Post, on the faked clock.
     nextCreatedPost: () => {
-      const created = Promise.withResolvers<string>();
-      setTimeout(() => created.resolve("9"), 1_000);
+      const created = Promise.withResolvers<CreatedPost>();
+      setTimeout(() => created.resolve({ postId: "9", previous: null }), 1_000);
       return created.promise;
     },
     sessionPostingEnabled: async () => true,
@@ -170,7 +182,7 @@ it("runs a post that arrives over a new socket only after the one orphaned by th
     },
     cdp: page.cdp,
     navigate: () => {},
-    nextCreatedPost: async () => ids.shift()!,
+    nextCreatedPost: async () => ({ postId: ids.shift()!, previous: null }),
     sessionPostingEnabled: async () => true,
   });
 
@@ -234,7 +246,7 @@ it("refuses a post while session posting is off, or once the service stopped wai
   const run = commandRunner({
     ...composer(log),
     navigate: () => {},
-    nextCreatedPost: async () => "1",
+    nextCreatedPost: async () => ({ postId: "1", previous: null }),
     sessionPostingEnabled: async () => false,
   });
   await expect(run(post("hi"))).rejects.toMatchObject({
@@ -332,7 +344,8 @@ it("likes the post's own article on its page, waits for X to show it liked, and 
   const article = 'article:has(a[href$="/status/9"] time)';
   const either = `${article} button[data-testid="like"], ${article} button[data-testid="unlike"]`;
   const presses: Array<string> = [];
-  const page = (likedAlready: boolean) => {
+  /** `late`: X's page answers only after the deadline; `covered`: another layer sits on the button. */
+  const page = (likedAlready: boolean, press: "ok" | "late" | "covered" = "ok") => {
     let liked = likedAlready;
     return async (method: string, params: Record<string, unknown> = {}) => {
       switch (method) {
@@ -345,8 +358,19 @@ it("likes the post's own article on its page, waits for X to show it liked, and 
           throw new Error(`unexpected selector ${String(params.selector)}`);
         case "DOM.getAttributes":
           return { attributes: ["data-testid", liked ? "unlike" : "like"] };
-        case "DOM.getBoxModel":
-          return { model: { content: [0, 0, 20, 0, 20, 20, 0, 20] } };
+        case "DOM.getBoxModel": {
+          const box = { model: { content: [0, 0, 20, 0, 20, 20, 0, 20] } };
+          if (press !== "late") return box;
+          // On the faked clock, X's page answers five seconds past the like's deadline.
+          const answer = Promise.withResolvers<typeof box>();
+          setTimeout(() => answer.resolve(box), 10_000);
+          return answer.promise;
+        }
+        case "DOM.resolveNode":
+          return { object: { objectId: "5" } };
+        // Whether the button is what a press at its middle lands on.
+        case "Runtime.callFunctionOn":
+          return { result: { value: press !== "covered" } };
         case "Input.dispatchMouseEvent":
           if (params.type === "mouseReleased") {
             presses.push("like");
@@ -370,6 +394,16 @@ it("likes the post's own article on its page, waits for X to show it liked, and 
   }
   expect(loaded).toEqual(["https://x.com/i/web/status/9", "https://x.com/i/web/status/9"]);
   expect(presses).toEqual(["like"]);
+
+  // Past the deadline by the time X's page answered, or covered at the press: nothing pressed, so
+  // the service may send it again.
+  for (const press of ["late", "covered"] as const) {
+    vi.setSystemTime(T0);
+    const liking = likeOnPage(contents, page(false, press), "9", T0 + 5_000).catch((e) => e);
+    await vi.runAllTimersAsync();
+    await expect(liking).resolves.toMatchObject({ notAttempted: true });
+  }
+  expect(presses).toEqual(["like"]);
 });
 
 it("DMs through X's message composer, presses Send once it enables, and waits for X to clear it", async () => {
@@ -390,6 +424,10 @@ it("DMs through X's message composer, presses Send once it enables, and waits fo
         return {
           attributes: params.nodeId === 32 && typed === "" ? ["aria-disabled", "true"] : [],
         };
+      case "DOM.resolveNode":
+        return { object: { objectId: String(params.nodeId) } };
+      case "Runtime.callFunctionOn":
+        return { result: { value: true } };
       case "DOM.getBoxModel":
         return {
           model: {
@@ -445,23 +483,27 @@ it("refuses a DM untouched when X's message composer never draws", async () => {
   expect(log).toEqual(["load https://x.com/messages/compose?recipient_id=42"]);
 });
 
-it("hands X's create answer only to the command waiting for that one: a new post, or an edit of its post", async () => {
+it("hands a command the answer to the first create request sent once it listens, and none after it stops", async () => {
   const created = createdPosts();
-  const [post, edit, gaveUp] = [
-    new AbortController(),
-    new AbortController(),
-    new AbortController(),
-  ];
-  const newPost = created.next(null, post.signal);
-  const edited = created.next("701", edit.signal);
-  const stale = created.next("702", gaveUp.signal);
+  // Sent before the press: not its own, even when X answers it after.
+  created.request("r0", null);
+  const press = new AbortController();
+  const mine = created.next(press.signal);
+  created.request("r1", "701");
+  created.request("r2", null);
+  created.answered("r0", "900");
+  created.answered("r2", "902");
+  created.answered("r1", "703");
+  await expect(mine).resolves.toEqual({ postId: "703", previous: "701" });
+
+  // A body the capture could not read stays unknown, never a new post; a command that gave up
+  // hears nothing.
+  const gaveUp = new AbortController();
+  const stale = created.next(gaveUp.signal);
   gaveUp.abort();
-  // Someone else's edit, then this edit, then a new post; the command that gave up hears nothing.
-  created.created("900", "800");
-  created.created("703", "701");
-  created.created("901", null);
-  created.created("704", "702");
-  await expect(edited).resolves.toBe("703");
-  await expect(newPost).resolves.toBe("901");
+  const unread = created.next(new AbortController().signal);
+  created.request("r3", undefined);
+  created.answered("r3", "904");
+  await expect(unread).resolves.toEqual({ postId: "904", previous: undefined });
   await expect(Promise.race([stale, Promise.resolve("never heard")])).resolves.toBe("never heard");
 });

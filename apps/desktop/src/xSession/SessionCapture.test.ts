@@ -7,7 +7,7 @@ import type { EngineBatch, GrokCapture, ObservationBatch } from "@xtend/contract
 import type * as Electron from "electron";
 import { afterEach, beforeEach, expect, it, vi } from "vite-plus/test";
 
-import { attachSessionCapture } from "./SessionCapture.ts";
+import { attachSessionCapture, type SessionCaptureOptions } from "./SessionCapture.ts";
 
 const GRAPHQL = "https://x.com/i/api/graphql/abc";
 
@@ -89,11 +89,10 @@ let serviceUp: boolean;
 let serviceStatus: number;
 let detach: () => void;
 
-const start = (
-  onCreatedPost?: (postId: string, previous: string | null) => void,
-  accountId = 1,
-  onRender?: (batch: EngineBatch) => void,
-) => {
+/** What the capture says of X's creates: each request as it goes, each answer with its post. */
+type Creates = Pick<SessionCaptureOptions, "onCreateRequest" | "onCreatedPost">;
+
+const start = (creates: Creates = {}, accountId = 1, onRender?: (batch: EngineBatch) => void) => {
   const contents = { debugger: debug } as unknown as Electron.WebContents;
   detach = attachSessionCapture(contents, {
     ...(onRender === undefined ? {} : { onRender }),
@@ -102,7 +101,7 @@ const start = (
     accountId,
     queueDir,
     log: () => {},
-    ...(onCreatedPost === undefined ? {} : { onCreatedPost }),
+    ...creates,
   });
 };
 
@@ -133,8 +132,11 @@ afterEach(() => {
 });
 
 it("sends the posts in GraphQL responses the window received, base64 bodies too, and nothing else", async () => {
-  const created: Array<[string, string | null]> = [];
-  start((postId, previous) => created.push([postId, previous]));
+  const created: Array<string> = [];
+  start({
+    onCreateRequest: (requestId, previous) => created.push(`request ${requestId} ${previous}`),
+    onCreatedPost: (requestId, postId) => created.push(`answer ${requestId} ${postId}`),
+  });
   debug.received("1", `${GRAPHQL}/Viewer`, {
     data: { viewer: { user_results: { result: { core: { screen_name: "LevelsIO" } } } } },
   });
@@ -157,23 +159,29 @@ it("sends the posts in GraphQL responses the window received, base64 bodies too,
     data: { notetweet_create: { tweet_results: { result: { ...result, rest_id: "10" } } } },
   });
   debug.finished("5");
-  // An edit's create names the version it replaces, so it is told from any other post.
-  debug.emit("message", {}, "Network.requestWillBeSent", {
-    requestId: "6",
-    request: {
-      url: `${GRAPHQL}/CreateTweet`,
-      postData: JSON.stringify({ variables: { edit_options: { previous_tweet_id: "9" } } }),
-    },
-  });
+  await vi.waitFor(() => expect(created).toEqual(["answer 4 9", "answer 5 10"]));
+  // Each create request as it goes, by its id: an edit names the version it replaces, a new post
+  // none, and a body the capture cannot read says neither.
+  const ask = (requestId: string, postData: string | undefined) =>
+    debug.emit("message", {}, "Network.requestWillBeSent", {
+      requestId,
+      request: { url: `${GRAPHQL}/CreateTweet`, postData },
+    });
+  ask("6", JSON.stringify({ variables: { edit_options: { previous_tweet_id: "9" } } }));
+  ask("7", JSON.stringify({ variables: { tweet_text: "new" } }));
+  ask("8", undefined);
   debug.received("6", `${GRAPHQL}/CreateTweet`, {
     data: { create_tweet: { tweet_results: { result: { ...result, rest_id: "11" } } } },
   });
   debug.finished("6");
   await vi.waitFor(() =>
     expect(created).toEqual([
-      ["9", null],
-      ["10", null],
-      ["11", "9"],
+      "answer 4 9",
+      "answer 5 10",
+      "request 6 9",
+      "request 7 null",
+      "request 8 undefined",
+      "answer 6 11",
     ]),
   );
 });

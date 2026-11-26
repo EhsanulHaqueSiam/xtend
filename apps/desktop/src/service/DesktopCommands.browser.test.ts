@@ -413,7 +413,7 @@ const run = async (
     { loadURL: async () => {} },
     domCdp(log),
     command,
-    async () => "777",
+    async () => ({ postId: "777", previous: null }),
     T0 + 60_000,
   ).catch((error: unknown) => error);
   await vi.runAllTimersAsync();
@@ -741,6 +741,8 @@ interface EditPage {
   readonly editing?: string;
   /** X's composer moves on to another post's edit before X's last-edit sheet. */
   readonly movesBeforeConfirm?: boolean;
+  /** A layer of X's sits on Update, so a press there would land on it. */
+  readonly coveredUpdate?: boolean;
 }
 
 /**
@@ -769,13 +771,13 @@ function fakeEditPage(
   const send = () => {
     const text = layers.querySelector('[data-testid="tweetTextarea_0"]')?.textContent;
     log.push(`create ${text}`);
-    // X's answers to other creates come first; only this edit's is the command's.
-    created.created("900", null);
-    created.created("901", "702");
-    created.created(
-      "703",
+    // This press's own create request, then X's answers to an earlier request and to this one.
+    created.request(
+      "r1",
       (history.state as { state: { previousTweetId: string } }).state.previousTweetId,
     );
+    created.answered("r0", "900");
+    created.answered("r1", "703");
   };
   document.body.addEventListener("click", (event) => {
     if (root?.isConnected !== true) return;
@@ -790,7 +792,9 @@ function fakeEditPage(
     } else if (testid === "edit") {
       log.push(`edit row ${target.dataset.of}`);
       editingAt(page.editing ?? target.dataset.of!);
-      layers.innerHTML = `<div role="dialog"><div data-testid="tweetTextarea_0" contenteditable="true" role="textbox" style="width:200px;height:24px">first take</div><button data-testid="tweetButton">Update</button></div>`;
+      const cover =
+        page.coveredUpdate === true ? '<div style="position:absolute;inset:0"></div>' : "";
+      layers.innerHTML = `<div role="dialog"><div data-testid="tweetTextarea_0" contenteditable="true" role="textbox" style="width:200px;height:24px">first take</div><div style="position:relative;width:fit-content"><button data-testid="tweetButton">Update</button>${cover}</div></div>`;
     } else if (testid === "tweetButton") {
       log.push("press Update");
       if (!page.lastEdit) return send();
@@ -873,4 +877,19 @@ it("presses neither Update nor X's last-edit confirm unless X's composer is edit
     notAttempted: true,
   });
   expect(off.log).not.toContain("press Update");
+
+  // The setting's answer came only after the deadline, or a layer covers Update: no press.
+  const slow = () => {
+    // On the faked clock, a minute past the edit's deadline.
+    const answer = Promise.withResolvers<boolean>();
+    setTimeout(() => answer.resolve(true), 120_000);
+    return answer.promise;
+  };
+  for (const late of [
+    await edit({ editable: true, lastEdit: false }, slow),
+    await edit({ editable: true, lastEdit: false, coveredUpdate: true }),
+  ]) {
+    expect(late.result).toMatchObject({ notAttempted: true });
+    expect(late.log).not.toContain("press Update");
+  }
 });

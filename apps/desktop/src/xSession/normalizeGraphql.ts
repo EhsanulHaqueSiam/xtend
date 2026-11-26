@@ -264,12 +264,22 @@ export function readCreatedPostId(body: unknown): string | undefined {
   return id !== undefined && X_ID.test(id) ? id : undefined;
 }
 
-/** The post an edit replaces, from X's create request (edit_options); null for a new post. */
-export function readEditedPostId(variables: Json): string | null {
-  const id = isRecord(variables.edit_options)
-    ? variables.edit_options.previous_tweet_id
-    : undefined;
-  return typeof id === "string" && X_ID.test(id) ? id : null;
+/**
+ * What X's create request body says: the post an edit replaces (edit_options), null for a new
+ * post, undefined for a body that is not there or names neither.
+ */
+export function readEditedPostId(postData: unknown): string | null | undefined {
+  try {
+    const variables: unknown = JSON.parse(String(postData)).variables;
+    if (!isRecord(variables)) return undefined;
+    if (variables.edit_options === undefined) return null;
+    const id = isRecord(variables.edit_options)
+      ? variables.edit_options.previous_tweet_id
+      : undefined;
+    return typeof id === "string" && X_ID.test(id) ? id : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 export const isViewerOperation = (url: string): boolean =>

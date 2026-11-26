@@ -644,17 +644,37 @@ export const emptyEngine: EngineState = {
   spacesUnavailable: new Set(),
 };
 
-/** `known` with what `posts` add: each edited post's earlier versions, by the newest X sent. */
+/** Whether X id `a` came after `b`: X's ids are numbers that grow with time, too long for a float. */
+const later = (a: string, b: string) => a.length > b.length || (a.length === b.length && a > b);
+
+/**
+ * `known` with each edited post's versions (its history in `posts`) pointing at the newest id any
+ * history named. A late copy of an older version never moves one back; `known` itself when
+ * nothing changed.
+ */
 function newestVersions(
   known: ReadonlyMap<string, string>,
   posts: ReadonlyArray<EnginePost>,
 ): ReadonlyMap<string, string> {
-  const newest = posts.filter((p) => p.edits.length > 1 && p.edits.at(-1) === p.postId);
-  if (newest.length === 0) return known;
-  const next = new Map(known);
-  for (const p of newest) for (const id of p.edits) if (id !== p.postId) next.set(id, p.postId);
-  return next;
+  let copy: Map<string, string> | null = null;
+  for (const p of posts) {
+    if (p.edits.length < 2) continue;
+    const newest = p.edits
+      .map((id) => (copy ?? known).get(id) ?? id)
+      .reduce((a, b) => (later(b, a) ? b : a));
+    for (const id of p.edits)
+      if (id !== newest && (copy ?? known).get(id) !== newest)
+        (copy ??= new Map(known)).set(id, newest);
+  }
+  return copy ?? known;
 }
+
+/** Every id in the lists as its newest version, once (see `newestVersions`). */
+const newestIn = (per: PerSurface<string>, latest: ReadonlyMap<string, string>) =>
+  (Object.keys(per) as ReadonlyArray<AnySurface>).reduce(
+    (out, s) => set(out, s, unique(at(per, s).map((id) => latest.get(id) ?? id))),
+    per,
+  );
 
 /** A surface's entries; a tab X has not sent yet has none. */
 export const at = <A>(per: PerSurface<A>, surface: AnySurface): ReadonlyArray<A> =>
@@ -780,10 +800,19 @@ export function mergeBatch(state: EngineState, batch: EngineBatch): EngineState 
             ([id, on]) => homeTabs.some((t) => t.id === `community:${id}`) !== on,
           ),
         );
+  // An edit takes its earlier versions' place in every list, whichever of X's answers names it.
+  const latest = newestVersions(state.latest, batch.posts);
   const merged: EngineState = {
     ...state,
     posts,
-    latest: newestVersions(state.latest, batch.posts),
+    latest,
+    ...(latest === state.latest
+      ? {}
+      : {
+          lists: newestIn(state.lists, latest),
+          waiting: newestIn(state.waiting, latest),
+          nextTop: newestIn(state.nextTop, latest),
+        }),
     modules:
       batch.modules.length === 0
         ? state.modules
@@ -1337,24 +1366,10 @@ function promptsOf(state: EngineState, batch: EngineBatch): EngineState["prompts
  * The user's own new post, from X's composer response, where X shows it at once: a reply right
  * under the post it answers, whose reply count goes up by one; any other post on top of Home and
  * the user's profile. X's next page of those lists already holds it, so it never shows twice. An
- * edit (X's answer names the versions before it) takes their place wherever they are listed.
+ * edit already took its earlier versions' place (`newestVersions`).
  */
 function placeCreated(state: EngineState, post: EnginePost): EngineState {
-  const earlier = new Set(post.edits.filter((id) => id !== post.postId));
-  if (earlier.size > 0) {
-    const swap = (per: PerSurface<string>) =>
-      (Object.keys(per) as ReadonlyArray<AnySurface>).reduce(
-        (out, s) =>
-          set(out, s, unique(at(per, s).map((id) => (earlier.has(id) ? post.postId : id)))),
-        per,
-      );
-    return {
-      ...state,
-      lists: swap(state.lists),
-      waiting: swap(state.waiting),
-      nextTop: swap(state.nextTop),
-    };
-  }
+  if (post.edits.length > 1) return state;
   const parentId = post.replyToId;
   if (parentId === null) {
     const surfaces: ReadonlyArray<AnySurface> = [
