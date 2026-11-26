@@ -1703,12 +1703,12 @@ const benchmarks = [
       );
       if (drawn !== live)
         return (console.log(`  X live: ${live} in the store, table drew fewer`), false);
-      const theirs = await until(() =>
-        engine(
-          `location.pathname === "/i/account_analytics/live" && (document.body.innerText.includes("No broadcasts available") ? "0" : String(document.querySelectorAll("main tbody tr").length || ""))`,
-        ),
-      );
-      return live === theirs && `${audience}; ${live} broadcasts as X's page lists`;
+      // X draws its empty line for a moment before its table fills: wait for X's count to match.
+      const count = `location.pathname === "/i/account_analytics/live" && (document.body.innerText.includes("No broadcasts available") ? "0" : String(document.querySelectorAll("main tbody tr").length || ""))`;
+      const theirs = await until(async () => (await engine(count)) === live && live);
+      if (theirs !== live)
+        return (console.log(`  X live: Xtend ${live}, X's page ${await engine(count)}`), false);
+      return `${audience}; ${live} broadcasts as X's page lists`;
     },
   ],
   [
