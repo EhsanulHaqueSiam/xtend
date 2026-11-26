@@ -1020,17 +1020,18 @@ const openMenu = (at: MenuAt, mine = "true", press = false) => `
     ${at.find(mine)}
     const trigger = ${at.root}?.querySelector(${JSON.stringify(at.trigger)});
     if (!trigger || !(${mine}) || expanded(trigger)) return null;
+    const openedBefore = new Set(document.querySelectorAll('[role="menu"]'));
     trigger.click();
     clickedCarets.add(trigger);
     // A later click, including the user reopening this caret, is a different opening.
     trigger.addEventListener("click", () => clickedCarets.delete(trigger), { once: true });
-    let opened = ${mine} ? menuFor(trigger) : null;
+    let opened = ${mine} ? menuFor(trigger, openedBefore) : null;
     const closeMenu = () => closeOwnedMenu(trigger, opened);
     let items = [];
     for (let i = 0; i < 20 && items.length === 0; i++) {
       await new Promise((r) => setTimeout(r, 100));
       if (!(${mine}) || ${press && at.trend ? "(!opened && request !== window.__xtendMenuRequest)" : "false"}) return (closeMenu(), null);
-      opened ??= menuFor(trigger);
+      opened ??= menuFor(trigger, openedBefore);
       if (opened && menuFor(trigger) !== opened) return null;
       items = [...(opened?.querySelectorAll('[role="menuitem"]') ?? [])];
     }
@@ -1067,9 +1068,17 @@ const xMenuRun = (step: string, start = "") =>
     if (previousStep) await previousStep;
     try {
       const clickedCarets = window.__xtendMenuCarets ??= new WeakSet();
-      const expanded = (caret) => caret?.isConnected && caret.getAttribute("aria-expanded") === "true";
-      const menuFor = (caret) => {
+      // X's reply sort trigger carries no aria-expanded: its menu is the lone one our click opened.
+      const statelessMenus = window.__xtendStatelessMenus ??= new WeakMap();
+      const expanded = (caret) => caret?.isConnected && (caret.hasAttribute("aria-expanded") ? caret.getAttribute("aria-expanded") === "true" : !!statelessMenus.get(caret)?.isConnected);
+      // openedBefore: the menus already open before our click, which a claim never takes.
+      const menuFor = (caret, openedBefore = null) => {
+        if (openedBefore && clickedCarets.has(caret) && !caret.hasAttribute("aria-expanded") && !expanded(caret)) {
+          const menus = document.querySelectorAll('[role="menu"]');
+          if (menus.length === 1 && !openedBefore.has(menus[0])) statelessMenus.set(caret, menus[0]);
+        }
         if (!clickedCarets.has(caret) || !expanded(caret)) return null;
+        if (!caret.hasAttribute("aria-expanded")) return statelessMenus.get(caret);
         const controlled = caret.getAttribute("aria-controls")?.split(" ").map((id) => document.getElementById(id)?.closest('[role="menu"]')).find(Boolean);
         if (controlled) return controlled;
         const menus = document.querySelectorAll('[role="menu"]');
@@ -1081,7 +1090,7 @@ const xMenuRun = (step: string, start = "") =>
         [...(menu.parentElement?.children ?? [])].find((k) => k !== menu && k.getBoundingClientRect().height > 0)?.click();
       };
       // A late dropdown can remain after its request timed out. Only our expanded caret owns it.
-      for (const caret of document.querySelectorAll('[aria-expanded="true"]'))
+      for (const caret of document.querySelectorAll('[aria-expanded="true"], [aria-haspopup="menu"]:not([aria-expanded])'))
         if (clickedCarets.has(caret)) closeOwnedMenu(caret, menuFor(caret));
       ${step}
     } finally {

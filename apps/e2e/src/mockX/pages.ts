@@ -140,7 +140,7 @@ function article(p: EnginePost, state: MockState, opts: { focal?: boolean; sort?
   const sort =
     opts.sort === undefined
       ? ""
-      : `<div class="sort"><div><button aria-haspopup="menu" aria-expanded="false" data-menu="sort:${p.postId}">${esc(opts.sort)}</button></div><a href="/${esc(p.author.handle)}/status/${p.postId}/quotes">View quotes ›</a></div>`;
+      : `<div class="sort"><div><button aria-haspopup="menu" data-menu="sort:${p.postId}">${esc(opts.sort)}</button></div><a href="/${esc(p.author.handle)}/status/${p.postId}/quotes">View quotes ›</a></div>`;
   return `<article data-testid="tweet" role="article" tabindex="${opts.focal === true ? "-1" : "0"}" aria-labelledby="t${p.postId}"${p.spaceId === undefined ? "" : ` data-space-card="${esc(p.spaceId)}"`}>
   ${context}
   <div class="row"><div data-testid="Tweet-User-Avatar"><a href="/${esc(p.author.handle)}">${avatar(p.avatarUrl, p.author.handle)}</a></div>
