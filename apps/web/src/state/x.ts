@@ -38,8 +38,8 @@ const isXUrl = (url: string) => {
 
 let element: XWebview | null = null;
 let ready = false;
-/** The page asked for before the guest could load it, how many still want it, and who waits. */
-let pending: { url: string; askers: number; waiters: Array<() => void> } | null = null;
+/** Each ask for a page before the guest could load it, oldest first, until it loads or is let go. */
+let pending: ReadonlyArray<{ readonly url: string; readonly settle: () => void }> = [];
 
 /** Called by XPane: the element exists, and later, its guest can take commands. */
 export const registerXWebview = (el: XWebview | null) => {
@@ -52,14 +52,15 @@ export const markXReady = () => {
   ready = true;
   for (const loadedAnew of onPageLoad) loadedAnew();
   const asked = pending;
-  pending = null;
-  if (asked === null || element === null) return;
-  const done = () => asked.waiters.forEach((resolve) => resolve());
+  pending = [];
+  const newest = asked.at(-1);
+  if (newest === undefined || element === null) return;
+  const done = () => asked.forEach((a) => a.settle());
   // The guest's first page is often the one asked for; loading it again costs X a second boot.
-  if (element.getURL() === asked.url) done();
+  if (element.getURL() === newest.url) done();
   else
     void element
-      .loadURL(asked.url)
+      .loadURL(newest.url)
       .catch(() => {})
       .then(done);
 };
@@ -88,8 +89,8 @@ let moves = 0;
 
 /**
  * Loads an x.com URL; other hosts are ignored. Resolves once the page has loaded. Before the guest
- * is ready the last call wins and every caller waits for that load, so the next step has a page;
- * once every screen that asked for it has left (`signal`), it is dropped and its waiters let go.
+ * is ready the newest ask still wanted wins and every caller waits for that load, so the next step
+ * has a page; an ask whose screen left (`signal`) is let go at once.
  */
 export const xNavigate = (url: string, signal?: AbortSignal): Promise<void> => {
   if (!isXUrl(url) || signal?.aborted === true) return Promise.resolve();
@@ -112,18 +113,13 @@ export const xNavigate = (url: string, signal?: AbortSignal): Promise<void> => {
   moves++;
   if (element !== null && ready) return element.loadURL(url).catch(() => {});
   return new Promise((resolve) => {
-    pending = {
-      url,
-      askers: (pending?.url === url ? pending.askers : 0) + 1,
-      waiters: [...(pending?.waiters ?? []), resolve],
-    };
+    const ask = { url, settle: resolve };
+    pending = [...pending, ask];
     signal?.addEventListener(
       "abort",
       () => {
-        if (pending?.url !== url || --pending.askers > 0) return;
-        const { waiters } = pending;
-        pending = null;
-        for (const letGo of waiters) letGo();
+        pending = pending.filter((p) => p !== ask);
+        resolve();
       },
       { once: true },
     );
@@ -760,31 +756,44 @@ export const xLiveUpsell = async (loaded: Promise<unknown>, signal: AbortSignal)
   return typeof seen === "boolean" ? seen : null;
 };
 
+/** Live list scrolls started: X's page runs only the latest, and stops one let go. */
+let liveScrolls = 0;
+
 /**
  * Near the end of Xtend's list of broadcasts, scrolls X's own Live list (its own scroller, not the
  * page) to its end so X fetches its next page, until X draws more rows; then puts it back, so X
- * fetches no more by itself. True once X drew more; leaving X's page or `signal` ends it.
+ * fetches no more by itself. True once X drew more; `signal` or X's page moving on stops it.
  */
-export const xLiveMore = (signal: AbortSignal) =>
-  xRunHeld(
+export const xLiveMore = (signal: AbortSignal) => {
+  if (signal.aborted) return Promise.resolve(null);
+  const run = ++liveScrolls;
+  signal.addEventListener(
+    "abort",
+    () => void xRun(`window.__xtendLiveScroll === ${run} && (window.__xtendLiveScroll = 0), true`),
+    { once: true },
+  );
+  return xRunHeld(
     `(async () => {
-    const here = () => location.pathname === ${JSON.stringify(LIVE_ANALYTICS)};
+    window.__xtendLiveScroll = ${run};
+    const mine = () => window.__xtendLiveScroll === ${run} && location.pathname === ${JSON.stringify(LIVE_ANALYTICS)};
     const rows = () => document.querySelectorAll("main tbody tr").length;
     const wait = (ms) => new Promise((r) => setTimeout(r, ms));
     let box = document.querySelector("main tbody")?.parentElement ?? null;
     while (box !== null && !/(auto|scroll)/.test(getComputedStyle(box).overflowY)) box = box.parentElement;
-    if (!here() || box === null) return false;
+    if (!mine() || box === null) return false;
     const from = box.scrollTop;
     const seen = rows();
-    for (let i = 0; i < 40 && here() && rows() === seen; i++) {
+    for (let i = 0; i < 40 && mine() && rows() === seen; i++) {
       box.scrollTop = box.scrollHeight;
       await wait(250);
     }
-    if (here()) box.scrollTop = from;
+    // Back where it was, X's page moved on or not: X may keep the list for Back.
+    box.scrollTop = from;
     return rows() !== seen;
   })()`,
     signal,
   );
+};
 
 /** X's Radar (Premium): the user's saved queries; a query's page is `/<id>`, X's form `/new`. */
 export const RADAR_URL = "https://x.com/i/radar";

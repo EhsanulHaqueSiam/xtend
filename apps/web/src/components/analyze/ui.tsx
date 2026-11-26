@@ -60,29 +60,6 @@ export function ErrorBar({ children }: { readonly children: string | null }) {
 }
 
 /**
- * About `most` points of a long series for a LineChart: each stretch's lowest and highest and both
- * ends, each labelled by its own place (`label`), so thinning never hides a peak.
- */
-export function thinned(
-  values: ReadonlyArray<number>,
-  most: number,
-  label: (index: number) => string,
-) {
-  const size = Math.max(1, Math.ceil(values.length / Math.max(1, Math.floor(most / 2))));
-  const keep = new Set(values.length === 0 ? [] : [0, values.length - 1]);
-  for (let from = 0; from < values.length; from += size) {
-    let low = from;
-    let high = from;
-    for (let i = from; i < Math.min(from + size, values.length); i++) {
-      if (values[i]! < values[low]!) low = i;
-      if (values[i]! > values[high]!) high = i;
-    }
-    keep.add(low).add(high);
-  }
-  return [...keep].toSorted((a, b) => a - b).map((i) => ({ label: label(i), value: values[i]! }));
-}
-
-/**
  * One focus stop for a history: pointer or arrows inspect samples on a fitted y range, or as bars
  * from zero.
  */

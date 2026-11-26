@@ -40,6 +40,7 @@ import {
   xProfileMenuPress,
   xSortReplies,
   xScrollMore,
+  xLiveMore,
   xSubscribe,
   xVote,
   xTrendMenu,
@@ -2748,6 +2749,46 @@ it("ends a scroll for X's next page that X's page never answers, once X loads an
     gone.abort();
     await expect.poll(left).toBe(true);
   } finally {
+    registerXWebview(null);
+  }
+});
+
+it("stops scrolling X's Live list once the screen lets it go or X's page moves on, and puts the list back", async () => {
+  using _clock = fakeTimers();
+  const start = location.pathname + location.search;
+  // X's Live list scrolls in a box of its own, here scrolled to 20.
+  const list = () => {
+    history.replaceState(null, "", "/i/account_analytics/live");
+    document.body.innerHTML = `<main><div style="height:100px;overflow-y:auto"><table><tbody>${'<tr style="height:80px"><td>b</td></tr>'.repeat(3)}</tbody></table></div></main>`;
+    const box = document.querySelector("main div")!;
+    box.scrollTop = 20;
+    return box;
+  };
+  inThisPage();
+  try {
+    const box = list();
+    const left = new AbortController();
+    const asked = xLiveMore(left.signal);
+    await vi.advanceTimersByTimeAsync(300);
+    expect(box.scrollTop).toBeGreaterThan(20);
+    // The user leaves for a tool: X's list stops at once, back where it was.
+    left.abort();
+    expect(await asked).toBeNull();
+    await vi.advanceTimersByTimeAsync(300);
+    expect(box.scrollTop).toBe(20);
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(box.scrollTop).toBe(20);
+    // A broadcast opened mid-scroll moves X's page on: its list still goes back.
+    const again = list();
+    const moved = xLiveMore(new AbortController().signal);
+    await vi.advanceTimersByTimeAsync(300);
+    history.replaceState(null, "", "/i/account_analytics/live/900000800001");
+    await vi.advanceTimersByTimeAsync(300);
+    expect(await moved).toBe(false);
+    expect(again.scrollTop).toBe(20);
+  } finally {
+    history.replaceState(null, "", start);
+    document.body.innerHTML = "";
     registerXWebview(null);
   }
 });

@@ -133,6 +133,31 @@ it("waits for the guest before a page asked for early, so the step after it has 
   markXReady();
   expect(await kept).toBe(true);
   expect(shared.calls).toEqual([`load ${live}`]);
+
+  // Each ask is its own: an old one leaving after the same page was asked again drops only itself,
+  // and the newest still wanted loads, once.
+  const spaces = "https://x.com/i/account_analytics/spaces";
+  const asked = fakeWebview("https://x.com/home");
+  registerXWebview(asked.el);
+  const old = new AbortController();
+  const stale = xGo(live, old.signal);
+  void xGo(spaces, new AbortController().signal);
+  const newest = xGo(live, new AbortController().signal);
+  old.abort();
+  expect(await stale).toBe(false);
+  markXReady();
+  expect(await newest).toBe(true);
+  expect(asked.calls).toEqual([`load ${live}`]);
+  // A later ask leaving keeps the earlier one still wanted.
+  const earlier = fakeWebview("https://x.com/home");
+  registerXWebview(earlier.el);
+  const later = new AbortController();
+  const wanted = xGo(live, new AbortController().signal);
+  void xGo(spaces, later.signal);
+  later.abort();
+  markXReady();
+  expect(await wanted).toBe(true);
+  expect(earlier.calls).toEqual([`load ${live}`]);
 });
 
 it("goes Back only from a post page it opened itself", async () => {

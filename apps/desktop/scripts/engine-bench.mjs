@@ -1639,9 +1639,20 @@ const benchmarks = [
         30_000,
       );
       if (!ours) return false;
+      // X live's own section, mounted (its heading), and the engine on X's Live page (which may
+      // add its filter to the URL): what either shows is then Live's, never Audience's.
+      const onLive = () =>
+        until(
+          async () =>
+            (await app(
+              `[...document.querySelectorAll("h1")].some((h) => h.textContent.trim() === "X live")`,
+            )) && (await engine("location.pathname")) === "/i/account_analytics/live",
+          30_000,
+        );
       if (ours === "paywall") {
         // X live has its own page and gate: its paywall is checked there, not taken from audience.
         await go("#/analyze?tab=x-live");
+        if (!(await onLive())) return false;
         const walled = await until(
           () =>
             app(
@@ -1651,7 +1662,7 @@ const benchmarks = [
         );
         const upsell = await until(() =>
           engine(
-            `(location.pathname.startsWith("/i/premium_sign_up") || document.body.innerText.includes("Upgrade to continue")) || undefined`,
+            `(location.pathname === "/i/account_analytics/live" && document.body.innerText.includes("Upgrade to continue")) || undefined`,
           ),
         );
         return walled && upsell && "no Premium: X's paywall on audience and live";
@@ -1663,14 +1674,13 @@ const benchmarks = [
       );
       if (xs !== ours) return (console.log(`  Active times: Xtend ${ours}, X ${xs}`), false);
       await go("#/analyze?tab=x-live");
+      if (!(await onLive())) return false;
+      // The store's broadcasts, as Xtend's list virtualizes its rows. Strings, as until() takes 0
+      // for "not yet".
       const rows = await until(
-        () =>
-          app(
-            `(() => { const main = document.querySelector("main")?.innerText ?? ""; return main.includes("No broadcasts available") ? "0" : String(document.querySelectorAll("main tbody tr").length || ""); })()`,
-          ),
+        () => store(`$.broadcastList && String($.broadcastList.length)`),
         30_000,
       );
-      // Strings, as until() takes 0 for "not yet".
       if (!rows) return false;
       const theirs = await until(() =>
         engine(

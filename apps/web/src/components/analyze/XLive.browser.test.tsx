@@ -111,30 +111,41 @@ it("lists the user's broadcasts newest first in X's words, X's filters narrow th
   await expect.element(screen.getByText("Peak Viewers: 120")).toBeVisible();
 });
 
-it("pages through X's own list: its end scrolls X's list for more, and X's next page joins the first", async () => {
+it("pages through X's own list: its end scrolls X's list for more, X's next page joins, and a filter with none yet asks X on a click", async () => {
   await using x = await open();
-  x.bridge.emitEngine(listPage(fixtureRows, true, "MTc5NTUwMDAwMDAwMA"));
-  await expect.poll(() => x.rows().length).toBe(3);
+  const [ended, office, scheduled] = fixtureRows;
+  const asks = () => x.scripts.filter((s) => s.includes('"main tbody tr"')).length;
+  x.bridge.emitEngine(listPage([ended!, office!], true, "MTc5NTUwMDAwMDAwMA"));
+  await expect.poll(() => x.rows().length).toBe(2);
   // The list fills no screen: its end asks X's own list for its next page.
-  await expect.poll(() => x.scripts.some((s) => s.includes('"main tbody tr"'))).toBe(true);
+  await expect.poll(asks).toBe(1);
+  // X's first page has nothing scheduled, but X has more: the user's click asks X for it.
+  await userEvent.click(x.screen.getByRole("button", { name: "Filter: All" }));
+  await userEvent.click(page.getByRole("menuitem", { name: "Scheduled" }));
+  await userEvent.click(x.screen.getByRole("button", { name: "Load more" }));
+  expect(x.screen.container.textContent).not.toContain("No broadcasts available");
+  await expect.poll(asks).toBe(2);
   x.bridge.emitEngine(
     listPage(
-      [{ ...fixtureRows[1]!, broadcastId: "900000800009", title: "Live now", state: "Running" }],
+      [
+        scheduled!,
+        { ...office!, broadcastId: "900000800009", title: "Live now", state: "Running" },
+      ],
       false,
       null,
     ),
   );
-  await expect.poll(() => x.rows().length).toBe(4);
-  await userEvent.click(x.screen.getByRole("button", { name: "Filter: All" }));
+  await expect.poll(() => x.rows().map((r) => r[0])).toEqual(["Launch week AMA"]);
+  await userEvent.click(x.screen.getByRole("button", { name: "Filter: Scheduled" }));
   await userEvent.click(page.getByRole("menuitem", { name: "Live" }));
   await expect.poll(() => x.rows().map((r) => r[0])).toEqual(["Live now"]);
 });
 
-it("keeps a long broadcast's peak and both ends on its viewers chart, and says when X has no such broadcast", async () => {
+it("draws every minute of a long broadcast's viewers, its peak at its own minute, and says when X has no such broadcast", async () => {
   await using x = await open();
   x.bridge.emitEngine(list);
   await x.screen.getByRole("button", { name: /^Building Xtend live/ }).click();
-  // 241 minutes, 12 viewers but 500 at minute 239: a stride over the minutes would draw 12 flat.
+  // 241 minutes, 12 viewers but 500 at minute 239.
   x.bridge.emitEngine({
     ...details,
     liveAnalytics: {
@@ -146,6 +157,13 @@ it("keeps a long broadcast's peak and both ends on its viewers chart, and says w
     },
   });
   await expect.element(x.screen.getByText("Peak Viewers: 500")).toBeVisible();
+  // Every minute is drawn, each at its own x: the peak sits at minute 239 of 240.
+  await expect.element(x.screen.getByRole("slider")).toHaveAttribute("aria-valuemax", "241");
+  const line = x.screen.container.querySelector('svg path[fill="none"]')!.getAttribute("d")!;
+  const peak = [...line.matchAll(/[ML]([\d.]+),([\d.]+)/g)]
+    .map((m) => [Number(m[1]), Number(m[2])] as const)
+    .reduce((top, v) => (v[1] < top[1] ? v : top));
+  expect(peak[0]).toBe((239 / 240) * 600);
   expect(
     [...x.screen.container.querySelectorAll('[aria-live="polite"] span')].map((s) => s.textContent),
   ).toEqual(["0:00", "12 to 500", "4:00:00"]);

@@ -15,7 +15,7 @@ import { Empty, PageBody, Section, table } from "../ui/layout";
 import { OpenOnX } from "../ui/x-link";
 import { Avatar } from "../xnative/XPostView";
 import { XEmpty } from "../xnative/XRows";
-import { LineChart, thinned } from "./ui";
+import { LineChart } from "./ui";
 import { Paywall } from "./XAnalytics";
 
 const DATE = new Intl.DateTimeFormat("en", { month: "short", day: "numeric", year: "numeric" });
@@ -160,14 +160,14 @@ function SpaceRowView({
   );
 }
 
-/** At most this many points on the listeners chart: X counts every second of a long Space. */
-const CHART_POINTS = 240;
-
 /** X's Space Stats for one Space, its Concurrent Listeners and its Speakers, in X's words. */
 function SpaceStats({ stats }: { readonly stats: EngineSpaceStats }) {
   const navigate = useNavigate();
   const peak = stats.concurrent.length === 0 ? 0 : Math.max(...stats.concurrent);
-  const points = thinned(stats.concurrent, CHART_POINTS, clock);
+  const points = stats.concurrent.map((listeners, second) => ({
+    label: clock(second),
+    value: listeners,
+  }));
   const tiles: ReadonlyArray<readonly [string, number | null]> = [
     ["Total Participants", stats.participants],
     ["Peak Concurrent Listeners", peak],

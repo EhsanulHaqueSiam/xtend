@@ -1,7 +1,7 @@
 import { useAtomSet, useAtomValue } from "@effect/atom-react";
 import type { EngineBroadcastRow, EngineBroadcastStats } from "@xtend/contracts";
 import { ArrowLeft } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { type TableComponents, TableVirtuoso } from "react-virtuoso";
 
 import { isElectron } from "../../env";
@@ -12,8 +12,9 @@ import { PageHeader } from "../PageHeader";
 import { sectionLabel } from "../shell/sections";
 import { Empty, PageBody, Section, table } from "../ui/layout";
 import { OpenOnX } from "../ui/x-link";
+import { xPill } from "../x";
 import { useMore, XEmpty } from "../xnative/XRows";
-import { LineChart, thinned } from "./ui";
+import { LineChart } from "./ui";
 import { clock, PageTable, Paywall, Picker } from "./XAnalytics";
 
 const DATE = new Intl.DateTimeFormat("en", { month: "short", day: "numeric", year: "numeric" });
@@ -74,9 +75,13 @@ export function XLiveSection() {
   const [open, setOpen] = useState<string | null>(null);
   const [filter, setFilter] = useState<Filter>("all");
   const url = `https://x.com${LIVE_ANALYTICS}${open === null ? "" : `/${open}`}`;
+  // What the section shows now; leaving it lets go of what it asked X for there.
+  const page = useRef(new AbortController());
+  const [asking, setAsking] = useState(false);
   // oxlint-disable-next-line xtend/no-unreasoned-state-sync -- moves the engine (the session view) to X's Live analytics page for what the section shows, and reads whether X shows it or its upsell.
   useEffect(() => {
     const mine = new AbortController();
+    page.current = mine;
     const loaded = xGo(url, mine.signal);
     if (open === null)
       void xLiveUpsell(loaded, mine.signal).then((upsell) => {
@@ -140,6 +145,25 @@ export function XLiveSection() {
           }
           onReopen={() => void xNavigate(url)}
         />
+      ) : rows.length === 0 && broadcastMore ? (
+        // None of this filter yet, but X has more: the user's click asks X's list for its next page.
+        <Empty
+          action={
+            <button
+              type="button"
+              className={xPill}
+              disabled={asking}
+              onClick={() => {
+                setAsking(true);
+                void xLiveMore(page.current.signal).finally(() => setAsking(false));
+              }}
+            >
+              Load more
+            </button>
+          }
+        >
+          None in the broadcasts X has sent so far.
+        </Empty>
       ) : rows.length === 0 ? (
         <Empty>No broadcasts available for the selected filter</Empty>
       ) : (
@@ -216,9 +240,6 @@ function BroadcastCells({
   );
 }
 
-/** At most this many points on the viewers chart: X counts every minute of a long broadcast. */
-const CHART_POINTS = 240;
-
 /** X's numbers for one broadcast and, once it is over, its Live Viewers by the minute. */
 function BroadcastStats({ stats }: { readonly stats: EngineBroadcastStats }) {
   const long = length(stats);
@@ -228,7 +249,10 @@ function BroadcastStats({ stats }: { readonly stats: EngineBroadcastStats }) {
     ["Minutes watched", count(stats.minutesWatched)],
     ["Duration", long === null ? "-" : clock(long)],
   ] as const;
-  const points = thinned(stats.concurrent, CHART_POINTS, (minute) => clock(minute * 60_000));
+  const points = stats.concurrent.map((viewers, minute) => ({
+    label: clock(minute * 60_000),
+    value: viewers,
+  }));
   return (
     <PageBody className="@container">
       <Section
