@@ -812,16 +812,14 @@ export interface EngineBatch {
     | { readonly kind: "list"; readonly spaces: ReadonlyArray<EngineSpaceRow> }
     | { readonly kind: "space"; readonly space: EngineSpaceStats };
   /**
-   * X's Live analytics: a page of the user's broadcasts (X's first replaces the list, a later one
-   * joins it), one broadcast's numbers, or one X answered with none (deleted).
+   * X's Live analytics: the first page of the user's broadcasts and whether X has more, one
+   * broadcast's numbers, or one X answered with none (deleted).
    */
   readonly liveAnalytics?:
     | {
         readonly kind: "list";
         readonly broadcasts: ReadonlyArray<EngineBroadcastRow>;
-        readonly first: boolean;
-        /** X's cursor for its next page; null at its end. */
-        readonly next: string | null;
+        readonly more: boolean;
       }
     | { readonly kind: "broadcast"; readonly broadcast: EngineBroadcastStats }
     | { readonly kind: "unavailable"; readonly broadcastId: string };

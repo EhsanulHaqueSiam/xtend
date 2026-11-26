@@ -1341,8 +1341,9 @@ function keyOf(op: string, variables: Json, exploreTabs: ReadonlyArray<EngineExp
   if (op === "AudioSpaceById" || op === "spacesDetailsProviderQuery") return s("id") ?? null;
   // X's list of the user's Spaces, its first page; X's next pages as its own list scrolls.
   if (op === "spacesOverviewProviderQuery") return s("cursor") === undefined ? "spaces" : null;
-  // X's broadcasts: every page is the one list, its later pages joining the first.
-  if (op === "liveOverviewProviderQuery") return "live";
+  // X's broadcasts, its first page; X's next pages ask with an `{ offset }` cursor.
+  if (op === "liveOverviewProviderQuery")
+    return variables.cursor === null || variables.cursor === undefined ? "live" : null;
   if (op === "liveDetailsQuery") return s("broadcastId") ?? null;
   const accountAnalytics = accountAnalyticsKey(op, variables);
   if (accountAnalytics !== undefined) return accountAnalytics;
@@ -1547,8 +1548,8 @@ function readBroadcast(b: Json): EngineBroadcastRow | undefined {
 }
 
 /**
- * X's Live analytics (bundle.AccountAnalytics): a page of the user's broadcasts with X's cursor
- * for the next, one broadcast's numbers, or one X answered with none.
+ * X's Live analytics (bundle.AccountAnalytics): the first page of the user's broadcasts and
+ * whether X has more, one broadcast's numbers, or one X answered with none.
  */
 function readLiveAnalytics(
   op: string,
@@ -1557,15 +1558,14 @@ function readLiveAnalytics(
 ): Pick<EngineBatch, "liveAnalytics"> {
   if (op === "liveOverviewProviderQuery") {
     const listed = record(result(record(data.viewer_v2).user_results).broadcasts);
-    // A partial answer or an error alone carries no list.
-    if (!Array.isArray(listed.broadcasts)) return {};
+    // A partial answer or an error alone carries no list; Xtend reads X's first page only.
+    if (!Array.isArray(listed.broadcasts) || (variables.cursor ?? null) !== null) return {};
     return {
       liveAnalytics: {
         kind: "list",
         broadcasts: listed.broadcasts.flatMap((b) => readBroadcast(record(b)) ?? []),
-        first: variables.cursor === null || variables.cursor === undefined,
         // X's empty offset is its end.
-        next: asString(record(listed.cursor).offset) || null,
+        more: (asString(record(listed.cursor).offset) ?? "") !== "",
       },
     };
   }

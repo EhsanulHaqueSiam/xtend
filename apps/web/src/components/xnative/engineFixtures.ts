@@ -1565,8 +1565,7 @@ export function synth(): Readonly<Record<string, Fixture>> {
         liveAnalytics: {
           kind: "list",
           broadcasts: [ended, office, scheduled],
-          first: true,
-          next: null,
+          more: false,
         },
       }),
       batch("liveDetailsQuery", ENDED_BROADCAST, [], {

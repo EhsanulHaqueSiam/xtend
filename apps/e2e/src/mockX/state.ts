@@ -723,7 +723,6 @@ export function createMockState(options: MockOptions = {}) {
     ]),
   );
   let madeFolders = 0;
-  let livePage: number | null = null;
   /** X lists a folder it just created, renamed or put a post in or took one out of first. */
   const toTop = (folder: EngineBookmarkFolder) =>
     folders.splice(
@@ -763,28 +762,9 @@ export function createMockState(options: MockOptions = {}) {
         return fixture(op, "spaces") ?? null;
       case "spacesDetailsProviderQuery":
         return fixture(op, s(variables, "id") ?? "") ?? null;
-      // X's Live analytics: its list a page at a time from its offset, and a broadcast's numbers.
-      case "liveOverviewProviderQuery": {
-        const all = fixture(op, "live");
-        const list = all?.liveAnalytics;
-        if (all === undefined || list?.kind !== "list") return null;
-        const { cursor: asked } = variables;
-        const offset =
-          typeof asked === "object" && asked !== null && "offset" in asked
-            ? String(asked.offset)
-            : undefined;
-        const from = Number(offset ?? 0);
-        const to = from + (livePage ?? list.broadcasts.length);
-        return {
-          ...all,
-          liveAnalytics: {
-            ...list,
-            broadcasts: list.broadcasts.slice(from, to),
-            first: offset === undefined,
-            next: to < list.broadcasts.length ? String(to) : null,
-          },
-        };
-      }
+      // X's Live analytics the same way: its first page, and a broadcast's own numbers.
+      case "liveOverviewProviderQuery":
+        return variables.cursor === null ? (fixture(op, "live") ?? null) : null;
       case "liveDetailsQuery":
         return fixture(op, s(variables, "broadcastId") ?? "") ?? null;
       case "AudioSpaceById": {
@@ -1678,10 +1658,6 @@ export function createMockState(options: MockOptions = {}) {
     },
     setPremium: (on: boolean) => {
       premium = on;
-    },
-    /** How many broadcasts a page of X's Live list holds; null for all on one page. */
-    setLivePage: (size: number | null) => {
-      livePage = size;
     },
     /** The account's bookmark folders in X's order, and each one's posts, newest first. */
     folders: (): ReadonlyArray<EngineBookmarkFolder> => [...folders],

@@ -49,9 +49,12 @@ export function XSpacesSection() {
   const [open, setOpen] = useState<string | null>(null);
   const url = `https://x.com${SPACES_ANALYTICS}${open === null ? "" : `/${open}`}`;
   const loaded = useRef<Promise<unknown>>(Promise.resolve());
+  // What the section shows now: leaving it lets go of what it asked X for there.
+  const page = useRef(new AbortController());
   // oxlint-disable-next-line xtend/no-unreasoned-state-sync -- moves the engine (the session view) to X's Space analytics page for what the section shows, and reads whether X shows it or its upsell.
   useEffect(() => {
     const mine = new AbortController();
+    page.current = mine;
     loaded.current = xGo(url, mine.signal);
     if (open === null)
       void xSpacesUpsell(loaded.current, mine.signal).then((upsell) => {
@@ -86,7 +89,7 @@ export function XSpacesSection() {
         stats === undefined ? (
           <XEmpty
             empty="Loading the Space's analytics from X."
-            onReopen={() => void xNavigate(url)}
+            onReopen={() => void xNavigate(url, page.current.signal)}
           />
         ) : (
           <SpaceStats stats={stats} />
@@ -98,7 +101,7 @@ export function XSpacesSection() {
               ? "Loading X's Space analytics."
               : "X's analytics come from X's own page, in the desktop app."
           }
-          onReopen={() => void xNavigate(url)}
+          onReopen={() => void xNavigate(url, page.current.signal)}
         />
       ) : spaceList.length === 0 ? (
         <Empty>Spaces you host show here, with X's listeners and replays.</Empty>

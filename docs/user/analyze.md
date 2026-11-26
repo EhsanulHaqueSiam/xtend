@@ -63,9 +63,10 @@ paywall, and **Upgrade** opens X's own Premium page.
 - **X content**: your posts in the range with X's impressions, likes, replies and reposts, by
   type and sortable by column. A post opens its own Post Analytics.
 - **X video**: views, watch time, completion rate and average watch time, then your videos.
-- **X live**: your broadcasts with their views, unique viewers and minutes watched, filtered as
-  X filters them (All, Live, Scheduled, Ended). A broadcast opens X's numbers for it and, once it
-  is over, its viewers by the minute.
+- **X live**: your latest broadcasts, as many as X's page first lists, with their views, unique
+  viewers and minutes watched, filtered as X filters them (All, Live, Scheduled, Ended). When you
+  have more, **Open on X for all** shows the rest on X's own page. A broadcast opens X's numbers
+  for it and, once it is over, its viewers by the minute.
 - **X audience**: who engaged by gender, age, country, device and whether they follow you, for one
   engagement at a time, and **Active times**: the hours of the week your audience engaged over
   the last 28 days. Active times counts the engagement X's page asked about, Likes unless you

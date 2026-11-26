@@ -1809,7 +1809,7 @@ describe("renderEngineBatch around posts", () => {
     ]);
   });
 
-  it("reads X's Live analytics: each page of the user's broadcasts with X's cursor, one broadcast's numbers, and one X no longer has", () => {
+  it("reads X's Live analytics: the first page of the user's broadcasts and whether X has more, one broadcast's numbers, and one X no longer has", () => {
     const broadcast = {
       broadcast_id: "1yNGaQLqqwdJj",
       state: "Ended",
@@ -1865,8 +1865,7 @@ describe("renderEngineBatch around posts", () => {
       "live",
       {
         kind: "list",
-        first: true,
-        next: "MTc5NTUwMDAwMDAwMA",
+        more: true,
         broadcasts: [
           row,
           {
@@ -1884,21 +1883,14 @@ describe("renderEngineBatch around posts", () => {
         ],
       },
     ]);
-    // X's next page, as its own list scrolls, joins the first; an empty offset is X's end.
-    const next = page(
-      { offset: "MTc5NTUwMDAwMDAwMA" },
-      [{ ...broadcast, broadcast_id: "1RunningNowAb", state: "Running" }],
-      "",
-    );
-    expect([next.key, next.liveAnalytics]).toEqual([
-      "live",
-      {
-        kind: "list",
-        first: false,
-        next: null,
-        broadcasts: [{ ...row, broadcastId: "1RunningNowAb", state: "Running" }],
-      },
-    ]);
+    // An empty offset is X's end; X's next pages, as its own list scrolls, are not read.
+    expect(page(null, [broadcast], "").liveAnalytics).toEqual({
+      kind: "list",
+      more: false,
+      broadcasts: [row],
+    });
+    const next = page({ offset: "MTc5NTUwMDAwMDAwMA" }, [broadcast]);
+    expect([next.key, next.liveAnalytics]).toEqual([null, undefined]);
     // A partial answer without X's list says nothing about it.
     expect(page(null, null).liveAnalytics).toBeUndefined();
 

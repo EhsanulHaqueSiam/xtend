@@ -1,6 +1,6 @@
 import type { AccountPost } from "@xtend/contracts";
 import * as Cause from "effect/Cause";
-import { useId, useState, type ReactNode } from "react";
+import { useId, useMemo, useState, type ReactNode } from "react";
 
 import { cn, readableError } from "../../lib/utils";
 import { table } from "../ui/layout";
@@ -80,24 +80,56 @@ export function LineChart({
   const [inspected, setInspected] = useState<number | null>(null);
   const width = 600;
   const pad = 2;
-  if (points.length < (bars ? 1 : 2))
+  // The marks follow the points alone: inspecting a point only moves its marker.
+  const chart = useMemo(() => {
+    if (points.length < (bars ? 1 : 2)) return null;
+    const values = points.map((p) => p.value);
+    const max = Math.max(...values);
+    const min = Math.min(...values);
+    // Breathing room keeps extrema and constant histories clear without forcing zero into the range.
+    const margin = max === min ? Math.max(Math.abs(max) * 0.05, 1) : (max - min) * 0.1;
+    const lower = bars ? 0 : min - margin;
+    const upper = bars ? Math.max(max * 1.1, 1) : max + margin;
+    const x = (i: number) =>
+      bars ? ((i + 0.5) / points.length) * width : (i / (points.length - 1)) * width;
+    const y = (v: number) => height - pad - ((v - lower) / (upper - lower)) * (height - pad * 2);
+    const line = points
+      .map((p, i) => `${i === 0 ? "M" : "L"}${x(i).toFixed(1)},${y(p.value).toFixed(1)}`)
+      .join(" ");
+    const marks = bars ? (
+      points.map((p, i) => (
+        <rect
+          key={p.label}
+          x={x(i) - (width / points.length) * 0.35}
+          width={(width / points.length) * 0.7}
+          y={y(p.value)}
+          height={height - pad - y(p.value)}
+          fill="currentColor"
+          fillOpacity={0.7}
+        />
+      ))
+    ) : (
+      <>
+        <path d={`${line} L${width},${height} L0,${height} Z`} fill={`url(#${gradient})`} />
+        <path
+          d={line}
+          fill="none"
+          stroke="currentColor"
+          strokeWidth={2}
+          strokeLinejoin="round"
+          vectorEffect="non-scaling-stroke"
+        />
+      </>
+    );
+    return { max, min, x, y, marks };
+  }, [points, height, bars, gradient]);
+  if (chart === null)
     return (
       <p className="py-6 text-center text-sm text-muted-foreground">
         Not enough data for a chart yet.
       </p>
     );
-  const max = Math.max(...points.map((p) => p.value));
-  const min = Math.min(...points.map((p) => p.value));
-  // Breathing room keeps extrema and constant histories clear without forcing zero into the range.
-  const margin = max === min ? Math.max(Math.abs(max) * 0.05, 1) : (max - min) * 0.1;
-  const lower = bars ? 0 : min - margin;
-  const upper = bars ? Math.max(max * 1.1, 1) : max + margin;
-  const x = (i: number) =>
-    bars ? ((i + 0.5) / points.length) * width : (i / (points.length - 1)) * width;
-  const y = (v: number) => height - pad - ((v - lower) / (upper - lower)) * (height - pad * 2);
-  const line = points
-    .map((p, i) => `${i === 0 ? "M" : "L"}${x(i).toFixed(1)},${y(p.value).toFixed(1)}`)
-    .join(" ");
+  const { max, min, x, y, marks } = chart;
   const first = points[0]!;
   const last = points.at(-1)!;
   const index = inspected === null ? null : Math.min(inspected, points.length - 1);
@@ -169,31 +201,7 @@ export function LineChart({
               <stop offset="1" stopColor="currentColor" stopOpacity={0} />
             </linearGradient>
           </defs>
-          {bars ? (
-            points.map((p, i) => (
-              <rect
-                key={p.label}
-                x={x(i) - (width / points.length) * 0.35}
-                width={(width / points.length) * 0.7}
-                y={y(p.value)}
-                height={height - pad - y(p.value)}
-                fill="currentColor"
-                fillOpacity={0.7}
-              />
-            ))
-          ) : (
-            <>
-              <path d={`${line} L${width},${height} L0,${height} Z`} fill={`url(#${gradient})`} />
-              <path
-                d={line}
-                fill="none"
-                stroke="currentColor"
-                strokeWidth={2}
-                strokeLinejoin="round"
-                vectorEffect="non-scaling-stroke"
-              />
-            </>
-          )}
+          {marks}
           {index !== null && (
             <line
               x1={x(index)}

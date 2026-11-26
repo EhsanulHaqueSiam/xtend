@@ -20,12 +20,11 @@ const [stats] = batches.flatMap((b) =>
 );
 const { liveAnalytics: _, ...base } = list;
 const noClaims: EngineBatch = { ...base, op: "GetUserClaims", key: null, claims: [] };
-/** A page of X's list: X's first (its list now) or a later one, and X's cursor for the next. */
-const listPage = (
-  broadcasts: ReadonlyArray<EngineBroadcastRow>,
-  first: boolean,
-  next: string | null,
-): EngineBatch => ({ ...base, liveAnalytics: { kind: "list", broadcasts, first, next } });
+/** X's first page of the list, and whether X has more. */
+const listPage = (broadcasts: ReadonlyArray<EngineBroadcastRow>, more: boolean): EngineBatch => ({
+  ...base,
+  liveAnalytics: { kind: "list", broadcasts, more },
+});
 const fixtureRows = list.liveAnalytics?.kind === "list" ? list.liveAnalytics.broadcasts : [];
 
 /** The section on a fresh store, the engine a fake webview whose scripts the test reads. */
@@ -111,34 +110,21 @@ it("lists the user's broadcasts newest first in X's words, X's filters narrow th
   await expect.element(screen.getByText("Peak Viewers: 120")).toBeVisible();
 });
 
-it("pages through X's own list: its end scrolls X's list for more, X's next page joins, and a filter with none yet asks X on a click", async () => {
+it("says when X has more than its first page, under the list and in a filter with none, and opens X's page for all", async () => {
   await using x = await open();
-  const [ended, office, scheduled] = fixtureRows;
-  const asks = () => x.scripts.filter((s) => s.includes('"main tbody tr"')).length;
-  x.bridge.emitEngine(listPage([ended!, office!], true, "MTc5NTUwMDAwMDAwMA"));
+  const [ended, office] = fixtureRows;
+  const latest = "Showing your latest 2 broadcasts. Open on X for all";
+  x.bridge.emitEngine(listPage([ended!, office!], true));
   await expect.poll(() => x.rows().length).toBe(2);
-  // The list fills no screen: its end asks X's own list for its next page.
-  await expect.poll(asks).toBe(1);
-  // X's first page has nothing scheduled, but X has more: the user's click asks X for it.
+  expect(x.screen.container.textContent).toContain(latest);
+  await expect
+    .element(x.screen.getByRole("link", { name: "Open on X for all" }))
+    .toHaveAttribute("href", "https://x.com/i/account_analytics/live");
+  // None scheduled among them, but X has more: not X's empty line, which would say there are none.
   await userEvent.click(x.screen.getByRole("button", { name: "Filter: All" }));
   await userEvent.click(page.getByRole("menuitem", { name: "Scheduled" }));
-  await userEvent.click(x.screen.getByRole("button", { name: "Load more" }));
+  await expect.poll(() => x.screen.container.textContent).toContain(latest);
   expect(x.screen.container.textContent).not.toContain("No broadcasts available");
-  await expect.poll(asks).toBe(2);
-  x.bridge.emitEngine(
-    listPage(
-      [
-        scheduled!,
-        { ...office!, broadcastId: "900000800009", title: "Live now", state: "Running" },
-      ],
-      false,
-      null,
-    ),
-  );
-  await expect.poll(() => x.rows().map((r) => r[0])).toEqual(["Launch week AMA"]);
-  await userEvent.click(x.screen.getByRole("button", { name: "Filter: Scheduled" }));
-  await userEvent.click(page.getByRole("menuitem", { name: "Live" }));
-  await expect.poll(() => x.rows().map((r) => r[0])).toEqual(["Live now"]);
 });
 
 it("draws every minute of a long broadcast's viewers, its peak at its own minute, and says when X has no such broadcast", async () => {

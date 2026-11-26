@@ -1,6 +1,5 @@
 import type {
   EngineBatch,
-  EngineBroadcastRow,
   EngineCommunity,
   EngineGame,
   EngineGif,
@@ -1511,45 +1510,6 @@ it("keeps each Space recording's captions once per speaker and moment, in time o
     "How many replied?",
   ]);
   expect(both.spaceCaptions.get("900000700004")).toHaveLength(1);
-});
-
-it("keeps X's broadcasts in X's order: a first page replaces, a next page joins once per broadcast, and one X no longer has", () => {
-  const b = (broadcastId: string, state = "Ended"): EngineBroadcastRow => ({
-    broadcastId,
-    title: broadcastId,
-    state,
-    startedAt: null,
-    endedAt: null,
-    scheduledStart: null,
-    imageUrl: null,
-    views: 0,
-    viewers: 0,
-    minutesWatched: 0,
-  });
-  const ids = (s: EngineState) => s.broadcastList?.map((x) => x.broadcastId);
-  const page = (
-    broadcasts: ReadonlyArray<EngineBroadcastRow>,
-    first: boolean,
-    next: string | null,
-  ) =>
-    batch("liveOverviewProviderQuery", [], {
-      key: "live",
-      liveAnalytics: { kind: "list", broadcasts, first, next },
-    });
-  const one = mergeBatch(emptyEngine, page([b("a1"), b("a2")], true, "o1"));
-  expect([ids(one), one.broadcastMore]).toEqual([["a1", "a2"], true]);
-  // X's second page repeats one it listed: it shows once, where X first listed it.
-  const two = mergeBatch(one, page([b("a2"), b("a3", "Running")], false, null));
-  expect([ids(two), two.broadcastMore]).toEqual([["a1", "a2", "a3"], false]);
-  expect(ids(mergeBatch(two, page([b("a9")], true, null)))).toEqual(["a9"]);
-  const gone = mergeBatch(
-    two,
-    batch("liveDetailsQuery", [], {
-      key: "a1",
-      liveAnalytics: { kind: "unavailable", broadcastId: "a1" },
-    }),
-  );
-  expect(gone.broadcastStats.get("a1")).toBeNull();
 });
 
 it("keeps the user's own X Articles: each list as X last sent it, and a body X sent once", () => {

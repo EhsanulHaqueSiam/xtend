@@ -38,8 +38,8 @@ const isXUrl = (url: string) => {
 
 let element: XWebview | null = null;
 let ready = false;
-/** Each ask for a page before the guest could load it, oldest first, until it loads or is let go. */
-let pending: ReadonlyArray<{ readonly url: string; readonly settle: () => void }> = [];
+/** The newest page asked for before the guest could load it; its caller settles once it loads. */
+let pending: { readonly url: string; readonly settle: (loaded: boolean) => void } | null = null;
 
 /** Called by XPane: the element exists, and later, its guest can take commands. */
 export const registerXWebview = (el: XWebview | null) => {
@@ -52,17 +52,15 @@ export const markXReady = () => {
   ready = true;
   for (const loadedAnew of onPageLoad) loadedAnew();
   const asked = pending;
-  pending = [];
-  const newest = asked.at(-1);
-  if (newest === undefined || element === null) return;
-  const done = () => asked.forEach((a) => a.settle());
+  pending = null;
+  if (asked === null || element === null) return;
   // The guest's first page is often the one asked for; loading it again costs X a second boot.
-  if (element.getURL() === newest.url) done();
+  if (element.getURL() === asked.url) asked.settle(true);
   else
     void element
-      .loadURL(newest.url)
+      .loadURL(asked.url)
       .catch(() => {})
-      .then(done);
+      .then(() => asked.settle(true));
 };
 
 /** Whether xGo moves X's page at `url` through X's router, not a full load. */
@@ -88,9 +86,30 @@ export const xKeepsPage = () => keepPage;
 let moves = 0;
 
 /**
+ * Before the guest is ready, `url` as the newest ask: true once the guest loaded it, false at once
+ * when a newer ask replaces it or its screen leaves (`signal`).
+ */
+const queue = (url: string, signal?: AbortSignal) => {
+  if (signal?.aborted === true) return Promise.resolve(false);
+  moves++;
+  return new Promise<boolean>((settle) => {
+    pending?.settle(false);
+    const ask = { url, settle };
+    pending = ask;
+    signal?.addEventListener(
+      "abort",
+      () => {
+        if (pending === ask) pending = null;
+        settle(false);
+      },
+      { once: true },
+    );
+  });
+};
+
+/**
  * Loads an x.com URL; other hosts are ignored. Resolves once the page has loaded. Before the guest
- * is ready the newest ask still wanted wins and every caller waits for that load, so the next step
- * has a page; an ask whose screen left (`signal`) is let go at once.
+ * is ready the newest ask waits for its load, so the next step has a page (see `queue`).
  */
 export const xNavigate = (url: string, signal?: AbortSignal): Promise<void> => {
   if (!isXUrl(url) || signal?.aborted === true) return Promise.resolve();
@@ -110,20 +129,9 @@ export const xNavigate = (url: string, signal?: AbortSignal): Promise<void> => {
       () => {},
     );
   }
+  if (element === null || !ready) return queue(url, signal).then(() => {});
   moves++;
-  if (element !== null && ready) return element.loadURL(url).catch(() => {});
-  return new Promise((resolve) => {
-    const ask = { url, settle: resolve };
-    pending = [...pending, ask];
-    signal?.addEventListener(
-      "abort",
-      () => {
-        pending = pending.filter((p) => p !== ask);
-        resolve();
-      },
-      { once: true },
-    );
-  });
+  return element.loadURL(url).catch(() => {});
 };
 
 /** `work`, or null once `signal` aborts or X's page loads anew under it, when it never settles. */
@@ -147,17 +155,16 @@ const heldOn = <A>(work: Promise<A>, signal: AbortSignal) =>
  * True when it moved; with `signal`, false once it aborts or X's page loads anew before the move
  * lands, and aborting drops a load still queued for the guest.
  */
-export const xGo = (url: string, signal?: AbortSignal): Promise<boolean> => {
-  if (signal === undefined) return go(url);
-  // Queued for the guest's first load, the move is that load: only leaving ends the wait.
-  if (element === null || !ready) return go(url, signal).then((moved) => moved && !signal.aborted);
-  return heldOn(go(url, signal), signal).then((moved) => moved ?? false);
-};
+export const xGo = (url: string, signal?: AbortSignal): Promise<boolean> =>
+  // Queued for the guest's first load, the move is that load: a newer ask or leaving ends it.
+  signal === undefined || element === null || !ready
+    ? go(url, signal)
+    : heldOn(go(url, signal), signal).then((moved) => moved ?? false);
 
 const go = (url: string, signal?: AbortSignal): Promise<boolean> => {
   if (!isXUrl(url)) return Promise.resolve(false);
-  const load = () => xNavigate(url, signal).then(() => true);
-  if (element === null || !ready) return load();
+  if (element === null || !ready) return queue(url, signal);
+  const load = () => xNavigate(url).then(() => true);
   const el = element;
   let here: URL;
   try {
@@ -754,45 +761,6 @@ export const xLiveUpsell = async (loaded: Promise<unknown>, signal: AbortSignal)
     signal,
   );
   return typeof seen === "boolean" ? seen : null;
-};
-
-/** Live list scrolls started: X's page runs only the latest, and stops one let go. */
-let liveScrolls = 0;
-
-/**
- * Near the end of Xtend's list of broadcasts, scrolls X's own Live list (its own scroller, not the
- * page) to its end so X fetches its next page, until X draws more rows; then puts it back, so X
- * fetches no more by itself. True once X drew more; `signal` or X's page moving on stops it.
- */
-export const xLiveMore = (signal: AbortSignal) => {
-  if (signal.aborted) return Promise.resolve(null);
-  const run = ++liveScrolls;
-  signal.addEventListener(
-    "abort",
-    () => void xRun(`window.__xtendLiveScroll === ${run} && (window.__xtendLiveScroll = 0), true`),
-    { once: true },
-  );
-  return xRunHeld(
-    `(async () => {
-    window.__xtendLiveScroll = ${run};
-    const mine = () => window.__xtendLiveScroll === ${run} && location.pathname === ${JSON.stringify(LIVE_ANALYTICS)};
-    const rows = () => document.querySelectorAll("main tbody tr").length;
-    const wait = (ms) => new Promise((r) => setTimeout(r, ms));
-    let box = document.querySelector("main tbody")?.parentElement ?? null;
-    while (box !== null && !/(auto|scroll)/.test(getComputedStyle(box).overflowY)) box = box.parentElement;
-    if (!mine() || box === null) return false;
-    const from = box.scrollTop;
-    const seen = rows();
-    for (let i = 0; i < 40 && mine() && rows() === seen; i++) {
-      box.scrollTop = box.scrollHeight;
-      await wait(250);
-    }
-    // Back where it was, X's page moved on or not: X may keep the list for Back.
-    box.scrollTop = from;
-    return rows() !== seen;
-  })()`,
-    signal,
-  );
 };
 
 /** X's Radar (Premium): the user's saved queries; a query's page is `/<id>`, X's form `/new`. */

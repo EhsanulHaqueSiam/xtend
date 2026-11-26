@@ -95,13 +95,13 @@ it("waits for the guest before a page asked for early, so the step after it has 
   const cold = fakeWebview("https://x.com/home");
   registerXWebview(cold.el);
   let loaded = false;
-  const home = xNavigate("https://x.com/home").then(() => (loaded = true));
-  const search = xNavigate("https://x.com/search?q=a");
-  await Promise.resolve();
+  // The newest ask wins; the one it replaced is let go at once.
+  const home = xGo("https://x.com/home", new AbortController().signal);
+  const search = xNavigate("https://x.com/search?q=a").then(() => (loaded = true));
+  expect(await Promise.race([home, Promise.resolve("waiting")])).toBe(false);
   expect(loaded).toBe(false);
   markXReady();
-  await Promise.all([home, search]);
-  // The last ask wins; both callers waited for it.
+  await search;
   expect(cold.calls).toEqual(["load https://x.com/search?q=a"]);
 
   // The guest's first page is the one asked for: nothing loads twice.
@@ -112,8 +112,7 @@ it("waits for the guest before a page asked for early, so the step after it has 
   await again;
   expect(same.calls).toEqual([]);
 
-  // A screen left before the guest could load its page no longer wants it; a page another screen
-  // still waits for loads.
+  // A screen left before the guest could load its page no longer wants it.
   const live = "https://x.com/i/account_analytics/live";
   const left = fakeWebview("https://x.com/home");
   registerXWebview(left.el);
@@ -124,40 +123,31 @@ it("waits for the guest before a page asked for early, so the step after it has 
   markXReady();
   await Promise.resolve();
   expect(left.calls).toEqual([]);
-  const shared = fakeWebview("https://x.com/home");
-  registerXWebview(shared.el);
-  const first = new AbortController();
-  void xGo(live, first.signal);
-  const kept = xGo(live, new AbortController().signal);
-  first.abort();
-  markXReady();
-  expect(await kept).toBe(true);
-  expect(shared.calls).toEqual([`load ${live}`]);
 
-  // Each ask is its own: an old one leaving after the same page was asked again drops only itself,
-  // and the newest still wanted loads, once.
-  const spaces = "https://x.com/i/account_analytics/spaces";
+  // An old ask leaving takes nothing it no longer holds: the newest still loads, once.
   const asked = fakeWebview("https://x.com/home");
   registerXWebview(asked.el);
   const old = new AbortController();
   const stale = xGo(live, old.signal);
-  void xGo(spaces, new AbortController().signal);
+  void xGo("https://x.com/i/account_analytics/spaces", new AbortController().signal);
   const newest = xGo(live, new AbortController().signal);
   old.abort();
   expect(await stale).toBe(false);
   markXReady();
   expect(await newest).toBe(true);
   expect(asked.calls).toEqual([`load ${live}`]);
-  // A later ask leaving keeps the earlier one still wanted.
-  const earlier = fakeWebview("https://x.com/home");
-  registerXWebview(earlier.el);
-  const later = new AbortController();
-  const wanted = xGo(live, new AbortController().signal);
-  void xGo(spaces, later.signal);
-  later.abort();
+
+  // Radar, then X live, then Analyze's own Overview, which moves the engine nowhere: Live replaced
+  // Radar's ask and left with its screen, so nothing loads.
+  const radar = fakeWebview("https://x.com/home");
+  registerXWebview(radar.el);
+  void xNavigate("https://x.com/i/radar");
+  const onLive = new AbortController();
+  void xGo(live, onLive.signal);
+  onLive.abort();
   markXReady();
-  expect(await wanted).toBe(true);
-  expect(earlier.calls).toEqual([`load ${live}`]);
+  await Promise.resolve();
+  expect(radar.calls).toEqual([]);
 });
 
 it("goes Back only from a post page it opened itself", async () => {

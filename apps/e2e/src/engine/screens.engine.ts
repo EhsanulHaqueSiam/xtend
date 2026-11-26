@@ -375,9 +375,7 @@ test("Analyze draws X's own analytics for the range X's page shows, a range pres
     ),
   ).toBe(1);
 
-  // X's Live page lists the user's broadcasts, two to a page here: the list's end scrolls X's own
-  // list for the rest. One opens its own page and X's numbers for it.
-  e.mock.state.setLivePage(2);
+  // X's Live page lists the user's broadcasts; one opens its own page and X's numbers for it.
   await go("/analyze?tab=x-live");
   await expect.poll(enginePath).toBe("/i/account_analytics/live");
   const rows = e.app.locator('main [data-x="broadcast-row"]');
@@ -394,10 +392,6 @@ test("Analyze draws X's own analytics for the range X's page shows, a range pres
     ),
   ).toBe("1284");
   await e.app.getByText("Peak Viewers: 120").waitFor();
-  expect(
-    e.mock.reads.filter((r) => r.op === "liveOverviewProviderQuery").map((r) => r.variables.cursor),
-  ).toEqual([null, { offset: "2" }]);
-  e.mock.state.setLivePage(null);
 });
 
 test("Without Premium X sends no claims: Analyze reads X's upsell on X's page and shows X's paywall", async () => {

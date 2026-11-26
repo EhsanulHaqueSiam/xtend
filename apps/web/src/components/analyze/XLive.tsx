@@ -2,20 +2,18 @@ import { useAtomSet, useAtomValue } from "@effect/atom-react";
 import type { EngineBroadcastRow, EngineBroadcastStats } from "@xtend/contracts";
 import { ArrowLeft } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
-import { type TableComponents, TableVirtuoso } from "react-virtuoso";
 
 import { isElectron } from "../../env";
 import { cn } from "../../lib/utils";
 import { engineAtom, sawAnalyticsPage, updateEngine } from "../../state/engine";
-import { LIVE_ANALYTICS, xGo, xLiveMore, xLiveUpsell, xNavigate } from "../../state/x";
+import { LIVE_ANALYTICS, xGo, xLiveUpsell, xNavigate } from "../../state/x";
 import { PageHeader } from "../PageHeader";
 import { sectionLabel } from "../shell/sections";
 import { Empty, PageBody, Section, table } from "../ui/layout";
-import { OpenOnX } from "../ui/x-link";
-import { xPill } from "../x";
-import { useMore, XEmpty } from "../xnative/XRows";
+import { OpenOnX, XLink } from "../ui/x-link";
+import { XEmpty } from "../xnative/XRows";
 import { LineChart } from "./ui";
-import { clock, PageTable, Paywall, Picker } from "./XAnalytics";
+import { clock, Paywall, Picker } from "./XAnalytics";
 
 const DATE = new Intl.DateTimeFormat("en", { month: "short", day: "numeric", year: "numeric" });
 const count = (n: number) => n.toLocaleString("en");
@@ -52,18 +50,6 @@ const length = (b: EngineBroadcastRow) =>
     ? null
     : Math.max(0, Date.parse(b.endedAt) - Date.parse(b.startedAt));
 
-/** A row of the list: the whole row opens its broadcast, as on X. */
-const BroadcastTableRow: NonNullable<
-  TableComponents<EngineBroadcastRow, (id: string) => void>["TableRow"]
-> = ({ item, context: open, ...props }) => (
-  <tr
-    {...props}
-    data-x="broadcast-row"
-    className={cn(table.row, "cursor-pointer")}
-    onClick={() => open(item.broadcastId)}
-  />
-);
-
 /**
  * X's Live analytics for the user's own broadcasts, read from X's page (x.com/i/account_analytics/live
  * and a broadcast's own page under it) while the section is open; X's paywall without Premium.
@@ -75,9 +61,8 @@ export function XLiveSection() {
   const [open, setOpen] = useState<string | null>(null);
   const [filter, setFilter] = useState<Filter>("all");
   const url = `https://x.com${LIVE_ANALYTICS}${open === null ? "" : `/${open}`}`;
-  // What the section shows now; leaving it lets go of what it asked X for there.
+  // What the section shows now: leaving it lets go of what it asked X for there.
   const page = useRef(new AbortController());
-  const [asking, setAsking] = useState(false);
   // oxlint-disable-next-line xtend/no-unreasoned-state-sync -- moves the engine (the session view) to X's Live analytics page for what the section shows, and reads whether X shows it or its upsell.
   useEffect(() => {
     const mine = new AbortController();
@@ -95,9 +80,15 @@ export function XLiveSection() {
   const rows = (broadcastList ?? [])
     .filter((b) => shows(b, filter))
     .toSorted((a, b) => dated(b) - dated(a));
-  // X's next page comes from X's own list, at the reader's pace, as other X lists page.
-  const [scroller, setScroller] = useState<HTMLElement | null>(null);
-  const more = useMore(broadcastMore ? scroller : null, "live", rows.length, xLiveMore, true);
+  // Xtend reads X's first page only; the rest are X's own page's.
+  const latest = (
+    <>
+      Showing your latest {broadcastList?.length ?? 0} broadcasts.{" "}
+      <XLink href={`https://x.com${LIVE_ANALYTICS}`} className="underline">
+        Open on X for all
+      </XLink>
+    </>
+  );
   return (
     <div className="flex h-full flex-col">
       <PageHeader
@@ -129,7 +120,7 @@ export function XLiveSection() {
         stats === undefined ? (
           <XEmpty
             empty="Loading the broadcast's analytics from X."
-            onReopen={() => void xNavigate(url)}
+            onReopen={() => void xNavigate(url, page.current.signal)}
           />
         ) : stats === null ? (
           <Empty>X has no analytics for this broadcast. It may have been deleted.</Empty>
@@ -143,57 +134,43 @@ export function XLiveSection() {
               ? "Loading X's Live analytics."
               : "X's analytics come from X's own page, in the desktop app."
           }
-          onReopen={() => void xNavigate(url)}
+          onReopen={() => void xNavigate(url, page.current.signal)}
         />
-      ) : rows.length === 0 && broadcastMore ? (
-        // None of this filter yet, but X has more: the user's click asks X's list for its next page.
-        <Empty
-          action={
-            <button
-              type="button"
-              className={xPill}
-              disabled={asking}
-              onClick={() => {
-                setAsking(true);
-                void xLiveMore(page.current.signal).finally(() => setAsking(false));
-              }}
-            >
-              Load more
-            </button>
-          }
-        >
-          None in the broadcasts X has sent so far.
-        </Empty>
       ) : rows.length === 0 ? (
-        <Empty>No broadcasts available for the selected filter</Empty>
+        <Empty>{broadcastMore ? latest : "No broadcasts available for the selected filter"}</Empty>
       ) : (
-        <TableVirtuoso
-          className="min-h-0 flex-1 [--row-inset:24px]"
-          data={rows}
-          context={setOpen}
-          components={{ Table: PageTable, TableRow: BroadcastTableRow }}
-          computeItemKey={(_, b) => b.broadcastId}
-          scrollerRef={(el) => setScroller(el instanceof HTMLElement ? el : null)}
-          {...(broadcastMore ? { endReached: more } : {})}
-          fixedHeaderContent={() => (
-            <tr>
-              <th className={cn(table.th, "bg-background")}>Broadcast</th>
-              <th className={cn(table.th, "bg-background text-right")}>Views</th>
-              <th className={cn(table.th, "bg-background text-right")}>Unique</th>
-              <th className={cn(table.th, "bg-background text-right")}>Minutes</th>
-            </tr>
-          )}
-          itemContent={(_, b) => (
-            <BroadcastCells broadcast={b} onOpen={() => setOpen(b.broadcastId)} />
-          )}
-        />
+        <PageBody>
+          <Section>
+            <table className={table.root}>
+              <thead>
+                <tr>
+                  <th className={table.th}>Broadcast</th>
+                  <th className={cn(table.th, "text-right")}>Views</th>
+                  <th className={cn(table.th, "text-right")}>Unique</th>
+                  <th className={cn(table.th, "text-right")}>Minutes</th>
+                </tr>
+              </thead>
+              <tbody>
+                {rows.map((b) => (
+                  <BroadcastRowView
+                    key={b.broadcastId}
+                    broadcast={b}
+                    onOpen={() => setOpen(b.broadcastId)}
+                  />
+                ))}
+              </tbody>
+            </table>
+            {broadcastMore ? (
+              <p className="mt-3 text-[13px] text-muted-foreground">{latest}</p>
+            ) : null}
+          </Section>
+        </PageBody>
       )}
     </div>
   );
 }
 
-/** A broadcast's cells: its picture, title, date, length and state, then X's three numbers. */
-function BroadcastCells({
+function BroadcastRowView({
   broadcast: b,
   onOpen,
 }: {
@@ -203,16 +180,12 @@ function BroadcastCells({
   const when = b.startedAt ?? b.scheduledStart;
   const long = length(b);
   return (
-    <>
+    <tr data-x="broadcast-row" className={cn(table.row, "cursor-pointer")} onClick={onOpen}>
       <td className={cn(table.td, "py-2")}>
         <button
           type="button"
           className="flex cursor-pointer items-center gap-3 text-left"
-          onClick={(event) => {
-            // The row opens it too.
-            event.stopPropagation();
-            onOpen();
-          }}
+          onClick={onOpen}
         >
           {b.imageUrl === null ? (
             <span className="h-8 w-14 shrink-0 rounded bg-white/[0.06]" />
@@ -236,7 +209,7 @@ function BroadcastCells({
       <td className={cn(table.td, table.num)}>{count(b.views)}</td>
       <td className={cn(table.td, table.num)}>{count(b.viewers)}</td>
       <td className={cn(table.td, table.num)}>{count(b.minutesWatched)}</td>
-    </>
+    </tr>
   );
 }
 

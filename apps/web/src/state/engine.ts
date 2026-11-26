@@ -507,8 +507,8 @@ export interface EngineState {
   /** Spaces X answered with no Space (see `EngineBatch.spaceUnavailable`), until X sends one. */
   readonly spacesUnavailable: ReadonlySet<string>;
   /**
-   * X's Live analytics: the user's broadcasts once X listed them, in X's order across its pages,
-   * whether X has more, and each broadcast's numbers (null for one X no longer has).
+   * X's Live analytics: the user's latest broadcasts once X listed them (its first page), whether X
+   * has more, and each broadcast's numbers (null for one X no longer has).
    */
   readonly broadcastList: ReadonlyArray<EngineBroadcastRow> | null;
   readonly broadcastMore: boolean;
@@ -997,7 +997,7 @@ function mergeQueues(
   };
 }
 
-/** X's broadcasts with this answer's: X's first page is its list now, a later one joins it. */
+/** X's broadcasts with this answer's: X's first page is its list now. */
 function mergeLive(
   state: EngineState,
   batch: EngineBatch,
@@ -1006,14 +1006,7 @@ function mergeLive(
   const live = batch.liveAnalytics;
   if (live === undefined) return { broadcastList, broadcastMore, broadcastStats };
   if (live.kind === "list")
-    return {
-      broadcastList:
-        live.first || broadcastList === null
-          ? live.broadcasts
-          : join(broadcastList, live.broadcasts, (b) => b.broadcastId),
-      broadcastMore: live.next !== null,
-      broadcastStats,
-    };
+    return { broadcastList: live.broadcasts, broadcastMore: live.more, broadcastStats };
   return {
     broadcastList,
     broadcastMore,

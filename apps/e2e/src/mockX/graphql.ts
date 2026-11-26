@@ -1311,7 +1311,7 @@ export function encodeBody(
             broadcasts: {
               broadcasts: a.broadcasts.map(encodeBroadcast),
               // X's empty offset is its end.
-              cursor: { offset: a.next ?? "" },
+              cursor: { offset: a.more ? String(a.broadcasts.length) : "" },
             },
           });
     }

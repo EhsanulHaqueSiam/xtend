@@ -1639,20 +1639,22 @@ const benchmarks = [
         30_000,
       );
       if (!ours) return false;
-      // X live's own section, mounted (its heading), and the engine on X's Live page (which may
-      // add its filter to the URL): what either shows is then Live's, never Audience's.
-      const onLive = () =>
+      // X live's own section mounted (its heading): what Xtend shows is then Live's, not Audience's.
+      const liveShown = () =>
         until(
-          async () =>
-            (await app(
-              `[...document.querySelectorAll("h1")].some((h) => h.textContent.trim() === "X live")`,
-            )) && (await engine("location.pathname")) === "/i/account_analytics/live",
+          () =>
+            app(
+              `[...document.querySelectorAll("h1")].some((h) => h.textContent.trim() === "X live") || undefined`,
+            ),
           30_000,
         );
       if (ours === "paywall") {
         // X live has its own page and gate: its paywall is checked there, not taken from audience.
+        // X's page moved after the visit began (its history grew): X's upsell on its Live page, or
+        // X's redirect to its Premium page, is then Live's.
+        const before = (await engine("navigation.currentEntry?.index ?? -1")) ?? -1;
         await go("#/analyze?tab=x-live");
-        if (!(await onLive())) return false;
+        if (!(await liveShown())) return false;
         const walled = await until(
           () =>
             app(
@@ -1660,10 +1662,12 @@ const benchmarks = [
             ),
           30_000,
         );
-        const upsell = await until(() =>
-          engine(
-            `(location.pathname === "/i/account_analytics/live" && document.body.innerText.includes("Upgrade to continue")) || undefined`,
-          ),
+        const upsell = await until(
+          () =>
+            engine(
+              `(navigation.currentEntry.index > ${before} && (location.pathname.startsWith("/i/premium_sign_up") || (location.pathname === "/i/account_analytics/live" && document.body.innerText.includes("Upgrade to continue")))) || undefined`,
+            ),
+          30_000,
         );
         return walled && upsell && "no Premium: X's paywall on audience and live";
       }
@@ -1674,7 +1678,15 @@ const benchmarks = [
       );
       if (xs !== ours) return (console.log(`  Active times: Xtend ${ours}, X ${xs}`), false);
       await go("#/analyze?tab=x-live");
-      if (!(await onLive())) return false;
+      // And the engine on X's Live page, which may add its filter to the URL.
+      if (
+        !(await liveShown()) ||
+        !(await until(
+          async () => (await engine("location.pathname")) === "/i/account_analytics/live",
+          30_000,
+        ))
+      )
+        return false;
       // The store's broadcasts, as Xtend's list virtualizes its rows. Strings, as until() takes 0
       // for "not yet".
       const rows = await until(
