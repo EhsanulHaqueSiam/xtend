@@ -1560,14 +1560,15 @@ function readLiveAnalytics(
     const user = result(record(data.viewer_v2).user_results);
     // An error alone carries no user; Xtend reads X's first page only.
     if (user.__typename !== "User" || (variables.cursor ?? null) !== null) return {};
-    // X's page reads the user's answer without its list as no broadcasts.
+    // X's page reads the user's answer without its list as no broadcasts, and no more.
     const listed = record(user.broadcasts);
+    const list = Array.isArray(listed.broadcasts) ? listed.broadcasts : null;
     return {
       liveAnalytics: {
         kind: "list",
-        broadcasts: arr(listed.broadcasts).flatMap((b) => readBroadcast(record(b)) ?? []),
+        broadcasts: (list ?? []).flatMap((b) => readBroadcast(record(b)) ?? []),
         // X's empty offset is its end.
-        more: (asString(record(listed.cursor).offset) ?? "") !== "",
+        more: list !== null && (asString(record(listed.cursor).offset) ?? "") !== "",
       },
     };
   }

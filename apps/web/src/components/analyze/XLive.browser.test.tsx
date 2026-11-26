@@ -6,7 +6,7 @@ import { page, userEvent } from "vite-plus/test/browser";
 import "~/index.css";
 import { installFakeBridge } from "../../../test/fakeBridge";
 import { render } from "../../../test/render";
-import { ANALYTICS_CLAIM, emptyEngine, updateEngine } from "../../state/engine";
+import { emptyEngine, updateEngine } from "../../state/engine";
 import { markXReady, registerXWebview, type XWebview } from "../../state/x";
 import { EngineSync } from "../xnative/EngineSync";
 import { ENDED_BROADCAST, synth } from "../xnative/engineFixtures";
@@ -28,10 +28,11 @@ const listPage = (broadcasts: ReadonlyArray<EngineBroadcastRow>, more: boolean):
 const fixtureRows = list.liveAnalytics?.kind === "list" ? list.liveAnalytics.broadcasts : [];
 
 /**
- * The section on a fresh store, the engine a fake webview whose scripts the test reads; `upsell` is
- * what X's Live page shows: its upsell (true), its list (false), or neither yet (null).
+ * The section on a fresh store, the engine a fake webview whose scripts the test reads; `upsells`
+ * are what X's Live page answers its upsell reads with in turn: its upsell (true), its list
+ * (false), or no answer (null, as while X loads anew), and then no answer.
  */
-async function open(upsell: boolean | null = null) {
+async function open(upsells: Array<boolean | null> = []) {
   updateEngine(() => emptyEngine);
   const bridge = installFakeBridge();
   const scripts: Array<string> = [];
@@ -40,7 +41,7 @@ async function open(upsell: boolean | null = null) {
     loadURL: () => Promise.resolve(),
     executeJavaScript: (code: string) => (
       scripts.push(code),
-      Promise.resolve(code.includes("Upgrade to continue") ? upsell : null)
+      Promise.resolve(code.includes("Upgrade to continue") ? (upsells.shift() ?? null) : null)
     ),
   } as unknown as XWebview);
   markXReady();
@@ -116,10 +117,14 @@ it("lists the user's broadcasts newest first in X's words, X's filters narrow th
   await expect.element(screen.getByText("Peak Viewers: 120")).toBeVisible();
 });
 
-it("shows X's paywall when X's Live page shows its upsell, even with X's claims letting the account in", async () => {
-  await using x = await open(true);
-  x.bridge.emitEngine({ ...noClaims, claims: [ANALYTICS_CLAIM] });
+it("reads X's upsell on its Live page again once X's page loads anew, as after X's redirect to Premium", async () => {
+  // X's redirect loads its page anew under the first read, which so has no answer.
+  await using x = await open([null, true]);
+  const reads = () => x.scripts.filter((s) => s.includes("Upgrade to continue")).length;
+  await expect.poll(reads).toBe(1);
+  markXReady();
   await expect.element(x.screen.getByText("Advanced analytics with Plus")).toBeVisible();
+  expect(reads()).toBe(2);
 });
 
 it("says when X has more than its first page, under the list and in a filter with none, and opens X's page for all", async () => {

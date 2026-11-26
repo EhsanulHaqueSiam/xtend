@@ -1901,6 +1901,8 @@ describe("renderEngineBatch around posts", () => {
       },
     );
     expect(listless.liveAnalytics).toEqual({ kind: "list", broadcasts: [], more: false });
+    // Nor does X's cursor beside a missing list say there are more.
+    expect(page(null, null).liveAnalytics).toEqual({ kind: "list", broadcasts: [], more: false });
     expect(
       renderEngineBatch("liveOverviewProviderQuery", { cursor: null }, { errors: [{}] })
         .liveAnalytics,

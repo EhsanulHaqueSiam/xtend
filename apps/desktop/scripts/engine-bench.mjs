@@ -1648,20 +1648,36 @@ const benchmarks = [
             ),
           30_000,
         );
-      if (ours === "paywall") {
-        // X live has its own page and gate: its paywall is checked there, not taken from audience.
-        // X's page moved after the visit began (its history grew): X's upsell on its Live page, or
-        // X's redirect to its Premium page, is then Live's.
-        const before = (await engine("navigation.currentEntry?.index ?? -1")) ?? -1;
-        await go("#/analyze?tab=x-live");
-        if (!(await liveShown())) return false;
-        const walled = await until(
-          () =>
-            app(
-              `(document.querySelector("main")?.innerText ?? "").includes("Advanced analytics with Plus") || undefined`,
-            ),
-          30_000,
+      let audience = "no Premium: X's paywall on audience";
+      if (ours !== "paywall") {
+        // X draws no heatmap without samples: its section bare or gone beside its others, or its
+        // page's "Not enough data yet", reads as no lit hours.
+        const xs = await until(() =>
+          engine(
+            `(() => { if (location.pathname !== "/i/account_analytics/audience") return undefined; const section = document.querySelector('section[aria-label="Active times"]'); const g = section?.querySelector(".grid"); if (!g) return section || document.querySelector('section[aria-label="Gender"]') || document.body.innerText.includes("Not enough data yet") ? "[]" : undefined; const cells = [...g.children].filter((c) => c.className.includes("bg-brand")); return cells.length === 168 ? JSON.stringify(cells.flatMap((c, i) => (c.style.opacity === "0.15" ? [] : [\`\${i % 7}-\${Math.floor(i / 7)}\`])).sort()) : undefined; })()`,
+          ),
         );
+        if (xs !== ours) return (console.log(`  Active times: Xtend ${ours}, X ${xs}`), false);
+        audience = `${JSON.parse(ours).length} lit hours as X's heatmap`;
+      }
+      // X live's gate, read on its own visit. X's page moving after the visit began (its history
+      // grew) makes its upsell there, or its redirect to its Premium page, Live's.
+      const before = (await engine("navigation.currentEntry?.index ?? -1")) ?? -1;
+      await go("#/analyze?tab=x-live");
+      if (!(await liveShown())) return false;
+      // Xtend's X live: X's paywall, or the store's broadcasts. Strings, as until() takes 0 for
+      // "not yet".
+      const live = await until(
+        async () =>
+          (await app(
+            `(document.querySelector("main")?.innerText ?? "").includes("Advanced analytics with Plus")`,
+          ))
+            ? "paywall"
+            : store(`$.broadcastList && String($.broadcastList.length)`),
+        30_000,
+      );
+      if (!live) return false;
+      if (live === "paywall") {
         const upsell = await until(
           () =>
             engine(
@@ -1669,49 +1685,30 @@ const benchmarks = [
             ),
           30_000,
         );
-        return walled && upsell && "no Premium: X's paywall on audience and live";
+        return upsell && `${audience}; no Premium: X's paywall on X live`;
       }
-      // X draws no heatmap without samples: its section bare or gone beside its others, or its
-      // page's "Not enough data yet", reads as no lit hours.
-      const xs = await until(() =>
-        engine(
-          `(() => { if (location.pathname !== "/i/account_analytics/audience") return undefined; const section = document.querySelector('section[aria-label="Active times"]'); const g = section?.querySelector(".grid"); if (!g) return section || document.querySelector('section[aria-label="Gender"]') || document.body.innerText.includes("Not enough data yet") ? "[]" : undefined; const cells = [...g.children].filter((c) => c.className.includes("bg-brand")); return cells.length === 168 ? JSON.stringify(cells.flatMap((c, i) => (c.style.opacity === "0.15" ? [] : [\`\${i % 7}-\${Math.floor(i / 7)}\`])).sort()) : undefined; })()`,
-        ),
-      );
-      if (xs !== ours) return (console.log(`  Active times: Xtend ${ours}, X ${xs}`), false);
-      await go("#/analyze?tab=x-live");
-      // And the engine on X's Live page, which may add its filter to the URL.
+      // The engine on X's Live page (which may add its filter to the URL), and the rows Xtend's
+      // table draws for the store's broadcasts (filter All).
       if (
-        !(await liveShown()) ||
         !(await until(
           async () => (await engine("location.pathname")) === "/i/account_analytics/live",
           30_000,
         ))
       )
         return false;
-      // The store's broadcasts, and the rows Xtend's table draws for them (filter All). Strings, as
-      // until() takes 0 for "not yet".
-      const rows = await until(
-        () => store(`$.broadcastList && String($.broadcastList.length)`),
-        30_000,
-      );
-      if (!rows) return false;
       const drawn = await until(() =>
         app(
-          `String(document.querySelectorAll('main [data-x="broadcast-row"]').length) === ${JSON.stringify(rows)} && ${JSON.stringify(rows)}`,
+          `String(document.querySelectorAll('main [data-x="broadcast-row"]').length) === ${JSON.stringify(live)} && ${JSON.stringify(live)}`,
         ),
       );
-      if (drawn !== rows)
-        return (console.log(`  X live: ${rows} in the store, table drew fewer`), false);
+      if (drawn !== live)
+        return (console.log(`  X live: ${live} in the store, table drew fewer`), false);
       const theirs = await until(() =>
         engine(
           `location.pathname === "/i/account_analytics/live" && (document.body.innerText.includes("No broadcasts available") ? "0" : String(document.querySelectorAll("main tbody tr").length || ""))`,
         ),
       );
-      return (
-        rows === theirs &&
-        `${JSON.parse(ours).length} lit hours as X's heatmap; ${rows} broadcasts as X's page lists`
-      );
+      return live === theirs && `${audience}; ${live} broadcasts as X's page lists`;
     },
   ],
   [

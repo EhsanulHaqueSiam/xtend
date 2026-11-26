@@ -396,30 +396,32 @@ test("Analyze draws X's own analytics for the range X's page shows, a range pres
 
 test("Without Premium X sends no claims: Analyze reads X's upsell on X's page and shows X's paywall", async () => {
   const lone = await startEngine({ premium: false, sendsClaims: false });
-  try {
-    await lone.app.evaluate((hash) => void (location.hash = hash), "#/analyze?tab=x-overview");
-    await expect.poll(() => lone.engine<string>("location.pathname")).toBe("/i/account_analytics");
-    await expect
+  const open = (route: string) =>
+    lone.app.evaluate((hash) => void (location.hash = hash), `#${route}`);
+  const walled = () =>
+    expect
       .poll(() => lone.app.locator("main").innerText())
       .toContain("Advanced analytics with Plus");
-    await expect
-      .poll(() => lone.app.getByRole("link", { name: "Upgrade" }).getAttribute("href"))
-      .toBe("https://x.com/i/premium_sign_up");
-    const ops = lone.mock.reads.map((r) => r.op);
-    expect([ops.includes("GetUserClaims"), ops.includes("accountOverviewDailyQuery")]).toEqual([
-      false,
-      false,
-    ]);
-    // X live reads its own page's upsell, and shows X's paywall from it.
-    await lone.app.evaluate((hash) => void (location.hash = hash), "#/analyze?tab=x-live");
+  try {
+    // X live first, with nothing known yet: its own page's upsell says it.
+    await open("/analyze?tab=x-live");
     await lone.app.getByRole("heading", { name: "X live", exact: true }).waitFor();
     await expect
       .poll(() => lone.engine<string>("location.pathname"))
       .toBe("/i/account_analytics/live");
+    await walled();
+    await open("/analyze?tab=x-overview");
+    await expect.poll(() => lone.engine<string>("location.pathname")).toBe("/i/account_analytics");
+    await walled();
     await expect
-      .poll(() => lone.app.locator("main").innerText())
-      .toContain("Advanced analytics with Plus");
-    expect(lone.mock.reads.map((r) => r.op)).not.toContain("liveOverviewProviderQuery");
+      .poll(() => lone.app.getByRole("link", { name: "Upgrade" }).getAttribute("href"))
+      .toBe("https://x.com/i/premium_sign_up");
+    const ops = lone.mock.reads.map((r) => r.op);
+    expect(
+      ["GetUserClaims", "accountOverviewDailyQuery", "liveOverviewProviderQuery"].map((op) =>
+        ops.includes(op),
+      ),
+    ).toEqual([false, false, false]);
   } finally {
     await lone.close();
   }
