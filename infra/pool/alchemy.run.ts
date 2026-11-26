@@ -15,8 +15,9 @@ const dev =
         scheme: "postgres" as const,
         host: hostname,
         port: Number(port || 5432),
-        user: decodeURIComponent(username),
-        password: Redacted.make(decodeURIComponent(password)),
+        // Kept percent-encoded: alchemy splices them into the connection string the driver parses.
+        user: username,
+        password: Redacted.make(password),
         database: pathname.slice(1),
         sslmode: "disable" as const,
       }))(new URL(devUrl));
@@ -28,7 +29,8 @@ export const Pool = Cloudflare.Worker("Pool", {
   // The live worker's name, never derived from the stage: another name would be a second worker.
   name: "xtend-pool",
   main: "./src/index.ts",
-  compatibility: { date: "2026-10-01", flags: ["nodejs_compat"] },
+  // nodejs_compat is on by default from this date; naming it too is rejected by Cloudflare.
+  compatibility: { date: "2026-10-01" },
   observability: { enabled: true },
   // Neon bills by the minute awake and sleeps 5 minutes after the last query: one wake an hour.
   crons: ["0 * * * *"],

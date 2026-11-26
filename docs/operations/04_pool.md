@@ -46,8 +46,9 @@ pnpm --filter @xtend/pool exec alchemy deploy --stage prod --adopt
 The PoolBuffer object keeps its data: alchemy matches the `BUFFER` binding to the live class by
 name, so the class must stay `PoolBuffer`. That deploy also adds alchemy's ownership tags and
 the `new_module_registry` compatibility flag, and ships alchemy's bundle of the same code, so run
-the local check under "Operating it" (register, push, flush, trends) before it. A bad deploy rolls
-back from the worker's Deployments page in the dashboard. The worker is retained: `alchemy
+the local check under "Operating it" (register, push, flush, trends) before it. It is one way: alchemy
+declares `PoolBuffer` as an export, and Cloudflare then rejects wrangler's old `migrations`
+upload. A bad deploy is undone by reverting the code and deploying again with alchemy. The worker is retained: `alchemy
 destroy`, or renaming it in `alchemy.run.ts`, makes alchemy forget it, never delete it.
 
 The pool pins effect 4.1.5, which alchemy needs; the rest of the workspace is on the catalog's
