@@ -11,6 +11,10 @@
     "scripts": {
       "entry": ["setup-worktree.ts"],
     },
+    // The alchemy CLI loads the stack by file name; the worker entry is its `main`.
+    "infra/pool": {
+      "entry": ["alchemy.run.ts!", "src/index.ts!"],
+    },
     // vite.config.ts loads it through `lint.jsPlugins`, which knip does not read.
     "oxlint-plugin-xtend": {
       "entry": ["index.ts", "rules/*.test.ts"],

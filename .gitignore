@@ -17,6 +17,9 @@ dist-electron/
 apps/desktop/release/
 dist-cli/
 .t3/
+# Local Durable Object data from wrangler, in checkouts older than alchemy.
 .wrangler/
+# Alchemy dev state and logs for infra/pool; may hold the local dev database's password.
+.alchemy/
 # Read-only reference sources (pnpm sync:repos), links into a clone shared by every worktree.
 .repos/

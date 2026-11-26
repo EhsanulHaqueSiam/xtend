@@ -90,6 +90,8 @@ jobs:
       - uses: ./.github/actions/setup
       - name: Reject X sessions and unscrubbed account data
         run: node scripts/check-no-x-session.ts
+      - name: Favicons match the brand mark
+        run: node scripts/icons.ts --check
       - run: pnpm fmt:check
       - run: pnpm lint
       - run: pnpm knip

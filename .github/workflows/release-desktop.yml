@@ -24,6 +24,8 @@ on:
       # The marketing site ships in no desktop build; a change to it goes live with the next release.
       - "!apps/marketing/**"
       - "packages/**"
+      # The app icon electron-builder packs.
+      - "assets/prod/**"
       - "package.json"
       - "pnpm-lock.yaml"
       - "pnpm-workspace.yaml"

@@ -4,18 +4,23 @@
   "description": "The worker in front of the shared pool: issues install ids, takes batches, serves trends.",
   "type": "module",
   "scripts": {
-    "dev": "wrangler dev",
-    "deploy": "wrangler deploy",
+    "dev": "alchemy dev --stage dev",
+    "plan": "alchemy plan --stage prod",
+    "deploy": "alchemy deploy --stage prod",
     "typecheck": "tsc-rs --noEmit -p tsconfig.json",
     "test": "vp test run"
   },
   "dependencies": {
+    "@alchemy.run/cloudflare": "catalog:",
+    "alchemy": "catalog:",
+    "effect": "4.1.5",
     "postgres": "^3.4.9"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^5.20261028.1",
+    "@effect/platform-node": "4.1.5",
+    "@types/node": "catalog:",
     "typescript": "catalog:",
-    "vite-plus": "catalog:",
-    "wrangler": "^4.154.0"
+    "vite-plus": "catalog:"
   }
 }
