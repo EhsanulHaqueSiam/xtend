@@ -50,8 +50,8 @@ logLoadsAndCrashes(app, log);
 // Dev and tests only: the session view's x.com answered by mock X on this machine.
 const mockX = mockXOrigin(process.env.XTEND_MOCK_X, app.isPackaged);
 if (mockX !== null) log("x.com is mock X", mockX);
-// Engine tests on mock X run hidden (XTEND_HEADLESS=1): no window, Dock icon or tray to take the
-// screen or focus, and no window manager to resize the window, so layout is the same on every host.
+// On macOS, engine tests on mock X run hidden (XTEND_HEADLESS=1): no window, Dock icon or tray to
+// take the screen or focus, and no window manager to resize the window, the same on every Mac.
 const headless = mockX !== null && process.env.XTEND_HEADLESS === "1";
 if (headless) app.dock?.hide();
 
