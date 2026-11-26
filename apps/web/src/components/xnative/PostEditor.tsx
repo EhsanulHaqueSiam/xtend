@@ -6,7 +6,7 @@ import { useContext, useState } from "react";
 import { editPostAtom } from "../../state/compose";
 import { canFormatAtom, engineAtom } from "../../state/engine";
 import { usePostLimit } from "../../state/settings";
-import { xHere, xNavigate } from "../../state/x";
+import { xGo, xHere, xNavigate } from "../../state/x";
 import { failText } from "../compose/AssistPanel";
 import { FormatTools, StyledArea, styleKey } from "../compose/FormatTools";
 import { plainEntities, shiftStyles, sliceStyles, toggleStyle } from "../compose/textStyles";
@@ -46,7 +46,7 @@ export function PostEditor({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   // After Update, while this window shows no new version: X may have saved it (its answer never
-  // came), or saved it through another desktop. Either way, no second Update.
+  // came), or saved it while this window missed X's answer. Either way, no second Update.
   const [status, setStatus] = useState<string | null>(null);
   const registry = useContext(RegistryContext);
 
@@ -61,19 +61,30 @@ export function PostEditor({
     // Trimmed as X posts it, so the runs move with the text's start.
     const lead = text.length - text.trimStart().length;
     const trimmed = text.trim();
+    // The edit takes X to the post's page; X goes back where it was once the edit settles (Home
+    // pages on from there), only while it still shows the edit's page, not where the user moved it.
+    const before = xHere();
+    const putBack = (saved: string | null = null) => {
+      const now = xHere();
+      const shown = /\/status\/(\d+)/.exec(now ?? "")?.[1];
+      const editsPage =
+        (shown !== undefined && [post.postId, saved].includes(shown)) ||
+        now?.includes("/compose/post") === true;
+      if (before !== null && now !== before && editsPage) void xGo(before);
+    };
     const exit = await update({
       postId: post.postId,
       text: trimmed,
       styles: sliceStyles(styles, lead, lead + trimmed.length),
     });
     setBusy(false);
-    if (Exit.isFailure(exit)) return setError(failText(exit.cause));
+    if (Exit.isFailure(exit)) return (putBack(), setError(failText(exit.cause)));
     const saved = exit.value.postId;
-    if (saved === null) return setStatus("X may have saved this edit; check the post");
+    if (saved === null) return (putBack(), setStatus("X may have saved this edit; check the post"));
     if (registry.get(engineAtom).posts.has(saved))
-      return (setToast({ text: "Updated on X" }), onDone());
-    // X's answer reached another desktop: this window's engine opens the new version once, a read
-    // for this click, and X's answer there takes the post's place.
+      return (putBack(saved), setToast({ text: "Updated on X" }), onDone());
+    // This window missed X's answer: while its X still shows the edited post, it opens the new
+    // version once, a read for this click, and X's answer there takes the post's place.
     setStatus("Updated on X; reload the post to see it");
     // Only while this window's X still shows the edited post, never over where the user moved it.
     if (/\/status\/(\d+)/.exec(xHere() ?? "")?.[1] === post.postId)

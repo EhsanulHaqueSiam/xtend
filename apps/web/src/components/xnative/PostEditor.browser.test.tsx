@@ -85,6 +85,7 @@ const batch = (op: string, posts: ReadonlyArray<EnginePost>) => ({
 /** X's engine: the post's "..." lists X's own rows, Edit post among them; presses and loads are kept. */
 const engine = (at = { url: "https://x.com/i/likes" }) => {
   const pressed: Array<string> = [];
+  const moved: Array<string> = [];
   const loaded: Array<string> = [];
   registerXWebview({
     getURL: () => at.url,
@@ -93,11 +94,13 @@ const engine = (at = { url: "https://x.com/i/likes" }) => {
       if (code.includes("const labels"))
         return Promise.resolve(["Delete", "Edit post", "Pin to your profile"]);
       if (code.includes("item.click()")) pressed.push("row");
+      const path = /history\.pushState\(null, "", "([^"]+)"\)/.exec(code)?.[1];
+      if (path !== undefined) moved.push(path);
       return Promise.resolve(false);
     },
   } as unknown as XWebview);
   markXReady();
-  return { pressed, loaded };
+  return { pressed, loaded, moved };
 };
 
 /** How X's Edit post went, per Update: refused, Update pressed with no answer from X, or saved. */
@@ -107,6 +110,8 @@ const screenWith = (
   sessionPostingEnabled: boolean,
   edits: Array<PostEdit>,
   outcomes: Array<Outcome>,
+  // What the desktop did with X's page while it edited.
+  meanwhile: () => void = () => {},
 ) =>
   render(
     <div style={{ height: 800, display: "flex" }}>
@@ -119,6 +124,7 @@ const screenWith = (
         "compose.editPost": (edit) =>
           Effect.suspend(() => {
             edits.push(edit);
+            meanwhile();
             const outcome = outcomes.shift();
             return outcome === "refused"
               ? Effect.fail(
@@ -181,8 +187,8 @@ it("turns the post's text into an editor for X's Edit post: Cancel, Update throu
     await openEdit(row);
     await userEvent.fill(box, `Shipping today ${LINK} for real`);
     await update.click();
-    // Saved, through a desktop whose capture this window never saw: its engine opens the new
-    // version once, and the editor waits for X's answer there.
+    // Saved, but this window missed X's answer: its X still shows the edited post, so it opens the
+    // new version once, and the editor waits for X's answer there.
     await expect
       .element(row.getByRole("status"))
       .toHaveTextContent("Updated on X; reload the post to see it");
@@ -225,6 +231,38 @@ it("with session actions off, X's Edit post opens no editor, as X's other rows p
       .element(row.getByRole("textbox", { name: "Edit post text" }))
       .not.toBeInTheDocument();
     expect(pressed).toEqual([]);
+  } finally {
+    registerXWebview(null);
+  }
+});
+
+it("puts X's page back where it was once an edit settles, unless the user moved it meanwhile", async () => {
+  const at = { url: "https://x.com/home" };
+  const { moved } = engine(at);
+  // The edit takes X to the post's page; the second time the user took it to Explore themselves.
+  const where: Array<string> = [];
+  try {
+    await using screen = await screenWith(true, [], ["refused", "refused"], () => {
+      at.url = where.shift() ?? at.url;
+    });
+    bridge.emitEngine(batch("Likes", [post("60", "Shipping today")]));
+    const row = screen.getByRole("article").first();
+    await expect.element(row).toBeVisible();
+    // The store outlives a test: the row's post may be an earlier test's version of 60.
+    where.push(
+      `https://x.com/you/status/${row.element().getAttribute("data-post")}`,
+      "https://x.com/explore",
+    );
+    const box = row.getByRole("textbox", { name: "Edit post text" });
+    await openEdit(row);
+    await userEvent.fill(box, `Shipping today ${LINK} for real`);
+    await row.getByRole("button", { name: "Update" }).click();
+    await expect.poll(() => moved).toEqual(["/home"]);
+    at.url = "https://x.com/home";
+    await row.getByRole("button", { name: "Update" }).click();
+    await expect.poll(() => where.length).toBe(0);
+    await expect.element(row.getByRole("alert")).toBeVisible();
+    expect([moved, at.url]).toEqual([["/home"], "https://x.com/explore"]);
   } finally {
     registerXWebview(null);
   }

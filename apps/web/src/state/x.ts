@@ -137,11 +137,11 @@ const heldOn = <A>(work: Promise<A>, signal: AbortSignal) =>
  * the URL instead before the first load or off a signed-in x.com page. True when it moved; with
  * `signal`, false once it aborts or X's page loads anew before the move lands.
  */
-/** The x.com page the engine shows now; null while there is no engine (a browser). */
-export const xHere = () => (element !== null && ready ? element.getURL() : null);
-
 export const xGo = (url: string, signal?: AbortSignal): Promise<boolean> =>
   signal === undefined ? go(url) : heldOn(go(url), signal).then((moved) => moved ?? false);
+
+/** The x.com page the engine shows now; null while there is no engine (a browser). */
+export const xHere = () => (element !== null && ready ? element.getURL() : null);
 
 const go = (url: string): Promise<boolean> => {
   if (!isXUrl(url)) return Promise.resolve(false);
