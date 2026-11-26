@@ -1,5 +1,5 @@
 import { useAtomSet } from "@effect/atom-react";
-import type { EnginePost, PostRead } from "@xtend/contracts";
+import { type EnginePost, MAX_SEEN_REPLIES, type PostRead } from "@xtend/contracts";
 import * as Exit from "effect/Exit";
 import { useEffect, useRef, useState } from "react";
 
@@ -18,24 +18,27 @@ type Mode = (typeof MODES)[number];
 const CORRECTIONS = ["Sincere", "Sarcastic", "Joking", "Asking for help", "Announcing"] as const;
 
 /**
- * Replying, after reading the post. The read (what the post is, from its text, image and thread)
- * runs on open, free on the user's login. Angles are replies written for this post; With help
- * reworks the user's own words; Your own touches nothing. The reply goes through the session.
+ * Replying. Your own touches nothing, and is where it opens. Angles reads the post first (what it
+ * is, from its text, image, thread and the replies under it), free on the user's login, then offers
+ * replies written for it; With help reworks the user's own words. The reply goes through the session.
  */
 export function ReplyComposer({
   post,
   thread,
+  replies,
   onSent,
 }: {
   readonly post: EnginePost;
   readonly thread: ReadonlyArray<string>;
+  /** The replies under the post that X has shown. */
+  readonly replies: ReadonlyArray<EnginePost>;
   readonly onSent: () => void;
 }) {
   const readPost = useAtomSet(readPostAtom(post.postId), { mode: "promiseExit" });
   const help = useAtomSet(draftReplyAtom(post.postId), { mode: "promiseExit" });
   const send = useAtomSet(sendReplyAtom(post.postId), { mode: "promiseExit" });
   const setToast = useAtomSet(toastAtom);
-  const [mode, setMode] = useState<Mode>("Angles");
+  const [mode, setMode] = useState<Mode>("Your own");
   const [read, setRead] = useState<PostRead | null>(null);
   const [reading, setReading] = useState(false);
   const [text, setText] = useState("");
@@ -50,16 +53,29 @@ export function ReplyComposer({
   const runRead = async (correction?: string) => {
     setReading(true);
     setError(null);
-    const exit = await readPost({ post: toXPost(post), images, thread, correction });
+    const seen = replies.slice(0, MAX_SEEN_REPLIES).map((r) => ({
+      author: r.author.handle,
+      followers: r.author.followers,
+      verified: r.author.verified,
+      likes: r.metrics.likes,
+      text: r.text,
+    }));
+    const exit = await readPost({ post: toXPost(post), images, thread, replies: seen, correction });
     setReading(false);
     if (Exit.isSuccess(exit)) setRead(exit.value);
     else setError(failText(exit.cause));
   };
-  // oxlint-disable-next-line xtend/no-unreasoned-state-sync -- reads the post from the service once per post: reading is free, and the angles are the point of opening the composer.
+  // A new post starts unread, so Angles reads it again.
+  const [readFor, setReadFor] = useState(post.postId);
+  if (readFor !== post.postId) {
+    setReadFor(post.postId);
+    setRead(null);
+  }
+  // oxlint-disable-next-line xtend/no-unreasoned-state-sync -- reads the post the first time Angles shows it: by then X has usually drawn the replies the read uses.
   useEffect(() => {
-    // oxlint-disable-next-line react/set-state-in-effect, react/exhaustive-effect-dependencies -- once per post, starting with the reading state: runRead is rebuilt every render, and reading again would replace the angles shown.
-    void runRead();
-  }, [post.postId]);
+    // oxlint-disable-next-line react/set-state-in-effect, react/exhaustive-effect-dependencies -- once per post while Angles shows, starting with the reading state: runRead is rebuilt every render.
+    if (mode === "Angles" && read === null && !reading) void runRead();
+  }, [mode, post.postId]);
 
   const pick = (angle: string) => {
     setText(angle);

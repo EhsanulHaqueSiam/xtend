@@ -166,8 +166,9 @@ it("draws X's Who to follow between the posts X put it between: three people wit
   expect(index(screen.getByRole("article").first().element())).toBe("0");
 });
 
-it("reads the post before replying, rereads on a correction, and sends the picked angle", async () => {
+it("opens on Your own; Angles reads the post with its replies, rereads on a correction, and sends the picked angle", async () => {
   const reads: Array<string | undefined> = [];
+  const seen: Array<unknown> = [];
   const sent: Array<string> = [];
   await using screen = await render(
     <ReplyComposer
@@ -185,13 +186,25 @@ it("reads the post before replying, rereads on a correction, and sends the picke
         ],
       })}
       thread={[]}
+      replies={[
+        post("9", "the users always win", {
+          author: {
+            userId: "9",
+            handle: "levelsio",
+            name: "Pieter",
+            followers: 621000,
+            verified: true,
+          },
+        }),
+      ]}
       onSent={() => {}}
     />,
     {
       service: {
-        "engage.readPost": ({ images, correction }) =>
+        "engage.readPost": ({ images, correction, replies }) =>
           Effect.sync(() => {
             reads.push(correction);
+            seen.push(replies);
             expect(images).toEqual(["https://pbs.twimg.com/a.jpg"]);
             return {
               read: correction ?? "Reluctant feature drop",
@@ -220,7 +233,22 @@ it("reads the post before replying, rereads on a correction, and sends the picke
       },
     },
   );
+  // Your own first, and nothing read until Angles opens.
+  await expect
+    .element(screen.getByRole("tab", { name: "Your own" }))
+    .toHaveAttribute("aria-selected", "true");
+  expect(reads).toEqual([]);
+  await userEvent.click(screen.getByRole("tab", { name: "Angles" }));
   await expect.element(screen.getByText("Reluctant feature drop")).toBeVisible();
+  expect(seen[0]).toEqual([
+    {
+      author: "levelsio",
+      followers: 621000,
+      verified: true,
+      likes: 120,
+      text: "the users always win",
+    },
+  ]);
   await userEvent.click(screen.getByRole("button", { name: "Sarcastic" }));
   await expect.element(screen.getByText("Sarcastic", { exact: true }).first()).toBeVisible();
   expect(reads).toEqual([undefined, "Sarcastic"]);

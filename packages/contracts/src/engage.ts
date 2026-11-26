@@ -40,6 +40,20 @@ export const PostRead = Schema.Struct({
 });
 export type PostRead = typeof PostRead.Type;
 
+/** The most replies a read takes: enough to rank, small enough for one model call. */
+export const MAX_SEEN_REPLIES = 40;
+
+/** A reply under the post as X shows it: who wrote it, how big they are, and how it did. */
+export const SeenReply = Schema.Struct({
+  author: Schema.String,
+  /** Null when X's answer left the count out. */
+  followers: Schema.NullOr(Schema.Number),
+  verified: Schema.Boolean,
+  likes: Schema.Number,
+  text: Schema.String,
+});
+export type SeenReply = typeof SeenReply.Type;
+
 /** One reply attempt, kept whether X accepted it or not. */
 export const SentReply = Schema.Struct({
   id: Schema.Int,
@@ -131,12 +145,16 @@ export const EngageRpcGroup = RpcGroup.make(
     success: Schema.Array(ReplyDraft),
     error: EngageError,
   }),
-  /** `images` are the post's image URLs; `thread` the texts above it; `correction` the user's own read. */
+  /**
+   * `images` are the post's image URLs; `thread` the texts above it; `replies` the ones under it
+   * that X has shown; `correction` the user's own read.
+   */
   Rpc.make(Engage_METHODS.readPost, {
     payload: Schema.Struct({
       post: XPost,
       images: Schema.Array(Schema.String),
       thread: Schema.Array(Schema.String),
+      replies: Schema.optional(Schema.Array(SeenReply).check(Schema.isMaxLength(MAX_SEEN_REPLIES))),
       correction: Schema.optional(Schema.String),
     }),
     success: PostRead,
