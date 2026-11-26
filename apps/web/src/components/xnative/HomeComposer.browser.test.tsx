@@ -462,6 +462,40 @@ it("goes by X's composer when X never sends GetUserClaims, and offers X's upsell
   await expect.element(bold).toHaveAttribute("aria-pressed", "true");
 });
 
+it("posts past 280 once X's composer shows Premium's longer posts, and stores X's word for queued posts", async () => {
+  updateEngine(() => emptyEngine);
+  const { log, service: base } = setup();
+  const updates: Array<unknown> = [];
+  const service: FakeService = {
+    ...base,
+    "settings.update": (patch) =>
+      Effect.sync(() => {
+        updates.push(patch);
+        return { ...settings, sessionPostingEnabled: true, longPosts: patch.longPosts ?? null };
+      }),
+  };
+  await using screen = await render(
+    <>
+      <EngineSync />
+      <HomeComposer />
+    </>,
+    { service },
+  );
+  await userEvent.fill(screen.getByLabelText("Post text"), "x".repeat(300));
+  await expect.element(screen.getByText(/300\/280/)).toBeVisible();
+
+  bridge.emitEngine({
+    ...people,
+    op: "ViewerFromNav",
+    viewer: { userId: null, handle: "you", name: null, avatarUrl: null },
+    formatting: true,
+  });
+  await expect.element(screen.getByText(/300\/25,000/)).toBeVisible();
+  await expect.poll(() => updates).toEqual([{ longPosts: true }]);
+  (screen.getByRole("button", { name: "Post", exact: true }).element() as HTMLElement).click();
+  await expect.poll(() => log).toEqual(["post h1 sessionOnly=true"]);
+});
+
 it("leaves a mention plain in a bold sentence, as X's composer does, and as Compose keeps it", async () => {
   const { creates, service } = setup();
   await using screen = await render(

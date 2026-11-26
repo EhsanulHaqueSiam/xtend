@@ -1312,12 +1312,24 @@ const benchmarks = [
       const shown = await until(
         () =>
           app(
-            `(() => { if (document.querySelector("main")?.innerText.includes("Advanced analytics with Plus")) return "paywall"; return ${ours} ? "numbers" : undefined; })()`,
+            `(() => { const main = document.querySelector("main")?.innerText ?? ""; if (main.includes("Advanced analytics with Plus")) return "paywall"; if (main.includes("once you reach 50 followers")) return "few"; return ${ours} ? "numbers" : undefined; })()`,
           ),
         30_000,
       );
       if (!shown) return false;
       const claims = await store(`String($.accountAnalytics.access)`);
+      if (shown === "few") {
+        // Under 50 followers X's page has no ranges, only its line and verified followers.
+        const tile = await app(
+          `document.querySelector('main [data-x-tile="Verified followers"] .font-mono')?.textContent`,
+        );
+        const same = await until(() =>
+          engine(
+            `document.body.innerText.includes("once you reach 50 followers") && document.body.innerText.replace(/\\s+/g, " ").includes(${JSON.stringify(tile ?? "none")})`,
+          ),
+        );
+        return same && `under 50 followers: X's line, verified followers ${tile} as X's page`;
+      }
       if (shown === "paywall") {
         // Xtend's Upgrade is X's page, and X's own page shows its upsell, not the numbers.
         const upgrade = await app(
@@ -1612,6 +1624,91 @@ const benchmarks = [
         engine(`${JSON.stringify(titles)}.every((t) => document.body.innerText.includes(t))`),
       );
       return xs && `${shown.length} Spaces, the first ${titles.length} as X's page lists them`;
+    },
+  ],
+  [
+    "Analyze X audience Active times and X live: the heatmap's lit hours and the broadcasts are X's page's, or without Premium X's paywall (reads only)",
+    async () => {
+      // Reads only: X's audience and live pages. X's cells run hour by hour, 7 days each.
+      await go("#/analyze?tab=x-audience");
+      const ours = await until(
+        () =>
+          app(
+            `(() => { const main = document.querySelector("main")?.innerText ?? ""; if (main.includes("Advanced analytics with Plus")) return "paywall"; const lit = [...document.querySelectorAll("main [data-cell]")].filter((c) => Number(c.style.opacity) > 0.15).map((c) => c.dataset.cell).sort(); return lit.length > 0 || main.includes("Active times") ? JSON.stringify(lit) : undefined; })()`,
+          ),
+        30_000,
+      );
+      if (!ours) return false;
+      // X live's own section mounted (its heading): what Xtend shows is then Live's, not Audience's.
+      const liveShown = () =>
+        until(
+          () =>
+            app(
+              `[...document.querySelectorAll("h1")].some((h) => h.textContent.trim() === "X live") || undefined`,
+            ),
+          30_000,
+        );
+      let audience = "no Premium: X's paywall on audience";
+      if (ours !== "paywall") {
+        // X draws no heatmap without samples: its section bare or gone beside its others, or its
+        // page's "Not enough data yet", reads as no lit hours.
+        const xs = await until(() =>
+          engine(
+            `(() => { if (location.pathname !== "/i/account_analytics/audience") return undefined; const section = document.querySelector('section[aria-label="Active times"]'); const g = section?.querySelector(".grid"); if (!g) return section || document.querySelector('section[aria-label="Gender"]') || document.body.innerText.includes("Not enough data yet") ? "[]" : undefined; const cells = [...g.children].filter((c) => c.className.includes("bg-brand")); return cells.length === 168 ? JSON.stringify(cells.flatMap((c, i) => (c.style.opacity === "0.15" ? [] : [\`\${i % 7}-\${Math.floor(i / 7)}\`])).sort()) : undefined; })()`,
+          ),
+        );
+        if (xs !== ours) return (console.log(`  Active times: Xtend ${ours}, X ${xs}`), false);
+        audience = `${JSON.parse(ours).length} lit hours as X's heatmap`;
+      }
+      // X live's gate, read on its own visit. X's page moving after the visit began (its history
+      // grew) makes its upsell there, or its redirect to its Premium page, Live's.
+      const before = (await engine("navigation.currentEntry?.index ?? -1")) ?? -1;
+      await go("#/analyze?tab=x-live");
+      if (!(await liveShown())) return false;
+      // Xtend's X live: X's paywall, or the store's broadcasts. Strings, as until() takes 0 for
+      // "not yet".
+      const live = await until(
+        async () =>
+          (await app(
+            `(document.querySelector("main")?.innerText ?? "").includes("Advanced analytics with Plus")`,
+          ))
+            ? "paywall"
+            : store(`$.broadcastList && String($.broadcastList.length)`),
+        30_000,
+      );
+      if (!live) return false;
+      if (live === "paywall") {
+        const upsell = await until(
+          () =>
+            engine(
+              `(navigation.currentEntry.index > ${before} && (location.pathname.startsWith("/i/premium_sign_up") || (location.pathname === "/i/account_analytics/live" && document.body.innerText.includes("Upgrade to continue")))) || undefined`,
+            ),
+          30_000,
+        );
+        return upsell && `${audience}; no Premium: X's paywall on X live`;
+      }
+      // The engine on X's Live page (which may add its filter to the URL), and the rows Xtend's
+      // table draws for the store's broadcasts (filter All).
+      if (
+        !(await until(
+          async () => (await engine("location.pathname")) === "/i/account_analytics/live",
+          30_000,
+        ))
+      )
+        return false;
+      const drawn = await until(() =>
+        app(
+          `String(document.querySelectorAll('main [data-x="broadcast-row"]').length) === ${JSON.stringify(live)} && ${JSON.stringify(live)}`,
+        ),
+      );
+      if (drawn !== live)
+        return (console.log(`  X live: ${live} in the store, table drew fewer`), false);
+      const theirs = await until(() =>
+        engine(
+          `location.pathname === "/i/account_analytics/live" && (document.body.innerText.includes("No broadcasts available") ? "0" : String(document.querySelectorAll("main tbody tr").length || ""))`,
+        ),
+      );
+      return live === theirs && `${audience}; ${live} broadcasts as X's page lists`;
     },
   ],
   [
@@ -2300,10 +2397,11 @@ const benchmarks = [
         async () => (await store(`$.formatting`)) === (drawn === "formats"),
         10_000,
       );
-      // Xtend's own box only: nothing is typed into X's composer or sent.
+      // Xtend's own box only: nothing is typed into X's composer or sent. A window in the background
+      // sends no focusin, and React reads a selection on keyup: both as a user's typing sends them.
       const fill = (text) =>
         app(
-          `(() => { const t = document.querySelector('main textarea[aria-label="Post text"]'); t.focus(); Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value").set.call(t, ${JSON.stringify(text)}); t.dispatchEvent(new Event("input", { bubbles: true })); t.setSelectionRange(0, ${text.length}); return true; })()`,
+          `(() => { const t = document.querySelector('main textarea[aria-label="Post text"]'); t.dispatchEvent(new FocusEvent("focusin", { bubbles: true })); t.focus(); Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value").set.call(t, ${JSON.stringify(text)}); t.dispatchEvent(new Event("input", { bubbles: true })); t.setSelectionRange(0, ${text.length}); t.dispatchEvent(new KeyboardEvent("keyup", { bubbles: true })); return true; })()`,
         );
       const bold = `document.querySelector('main button[aria-label="Bold"]')`;
       await fill("bench");

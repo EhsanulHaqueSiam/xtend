@@ -36,6 +36,11 @@ export const Settings = Schema.Struct({
   assistKeySet: Schema.Boolean,
   /** Push public sightings to the shared pool. Off stops the push and keeps reading trends. */
   poolSharing: Schema.Boolean,
+  /**
+   * Whether X lets this account write posts up to LONG_POST_LIMIT (Premium), as X's own composer
+   * last showed it in the desktop; null until it has, and again after an account switch.
+   */
+  longPosts: Schema.NullOr(Schema.Boolean),
 });
 export type Settings = typeof Settings.Type;
 
@@ -56,6 +61,7 @@ export const SettingsUpdate = Schema.Struct({
   assistBinaryPath: Schema.optional(Schema.String),
   assistKey: Schema.optional(Schema.NullOr(Schema.String)),
   poolSharing: Schema.optional(Schema.Boolean),
+  longPosts: Schema.optional(Schema.Boolean),
 });
 export type SettingsUpdate = typeof SettingsUpdate.Type;
 

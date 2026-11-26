@@ -374,6 +374,16 @@ describe("Publisher", () => {
       expect(yield* refused({ blocks: [{ text: "fits" }, { text: "語".repeat(141) }] })).toBe(
         "Post 2 is over 280 characters",
       );
+      // Premium's longer posts, as X's composer showed them: X's own limit, 25,000.
+      const settings = yield* SettingsStore.SettingsStore;
+      yield* settings.update({ longPosts: true });
+      expect(yield* refused({ blocks: [{ text: "fits" }, { text: "x".repeat(25_001) }] })).toBe(
+        "Post 2 is over 25,000 characters",
+      );
+      const long = yield* drafts.create({ blocks: [{ text: "x".repeat(290) }] });
+      expect((yield* publisher.post(long.id, postNow)).status).toBe("posted");
+      yield* settings.update({ longPosts: false });
+      calls.length = 0;
 
       const withImage = yield* drafts.create({
         blocks: [{ text: "vote" }],

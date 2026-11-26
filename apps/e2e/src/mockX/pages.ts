@@ -243,8 +243,8 @@ const gifTile = (g: EngineGif) =>
  * X's editor in its box: X caps the box's height (scrolling past it) unless its own gate lets the
  * account bold and italicize, which is how Xtend tells, as live X may never send GetUserClaims.
  */
-const editor = (state: MockState, placeholder: string) =>
-  `<div data-testid="tweetTextarea_0RichTextInputContainer" style="${state.formats ? "min-height: 24px" : "max-height: 720px; overflow-y: auto"}"><div data-testid="tweetTextarea_0" contenteditable="true" role="textbox" aria-label="Post text" data-placeholder="${placeholder}"></div></div>`;
+const editor = (state: MockState, placeholder: string, text = "") =>
+  `<div data-testid="tweetTextarea_0RichTextInputContainer" style="${state.formats ? "min-height: 24px" : "max-height: 720px; overflow-y: auto"}"><div data-testid="tweetTextarea_0" contenteditable="true" role="textbox" aria-label="Post text" data-placeholder="${placeholder}">${esc(text)}</div></div>`;
 
 /** X's composer toolbar: its GIF button opens X's GIF search, then `post` (Post or Reply). */
 // X's audience button ("Everyone"), as live only on /compose/post, never Home's composer; kept out
@@ -875,6 +875,42 @@ export function route(
       },
     };
   }
+  // X's Live analytics: its list of the user's broadcasts, a broadcast's page, or without Premium
+  // X's upsell. X's rows are links here; Xtend opens a broadcast's page by its URL.
+  if (lower === "i" && second === "account_analytics" && third === "live") {
+    if (!state.premium) return route(state, "/i/account_analytics", homeTab);
+    if (fourth !== undefined)
+      return {
+        title: "Analytics / X",
+        requests: [r("liveDetailsQuery", { broadcastId: fourth })],
+        render: ([b]) => {
+          const a = b?.liveAnalytics;
+          return `${header("Livestream Analytics")}${
+            a?.kind !== "broadcast"
+              ? ""
+              : `<h1>${esc(a.broadcast.title || "Untitled Broadcast")}</h1><div>Broadcast Metrics</div><div data-testid="live-metric">Views <span>${a.broadcast.views}</span></div><div>Live Viewers</div><div>Peak Viewers: <span>${Math.max(0, ...a.broadcast.concurrent)}</span></div>`
+          }`;
+        },
+      };
+    return {
+      title: "Analytics / X",
+      requests: [r("liveOverviewProviderQuery", { cursor: null, limit: 30 })],
+      render: ([b]) => {
+        const a = b?.liveAnalytics;
+        const rows = a?.kind === "list" ? a.broadcasts : [];
+        return `${header("Analytics")}<div role="combobox">All</div><button type="button" aria-label="Sort by">⇅</button>${
+          rows.length === 0
+            ? "<p>No broadcasts available for the selected filter</p>"
+            : `<table><thead><tr><th>Status</th><th>Broadcast</th><th>Minutes Watched</th><th>Views</th><th>Viewers</th></tr></thead><tbody>${rows
+                .map(
+                  (lb) =>
+                    `<tr data-testid="live-analytics-row"><td>${esc(lb.state)}</td><td><a href="/i/account_analytics/live/${esc(lb.broadcastId)}">${esc(lb.title || "Untitled")}</a></td><td>${lb.minutesWatched}</td><td>${lb.views}</td><td>${lb.viewers}</td></tr>`,
+                )
+                .join("")}</tbody></table>`
+        }`;
+      },
+    };
+  }
   if (lower === "i" && second === "account_analytics") {
     const page = third ?? "overview";
     const labels = ANALYTICS_RANGES[page];
@@ -1000,7 +1036,7 @@ export function route(
       title: "Analytics / X",
       requests: [
         r("audienceOverviewDataQuery", {
-          dimensions: ["Age", "Gender", "EngagementType", "ClientAppId"],
+          dimensions: ["Age", "Gender", "EngagementType", "ClientAppId", "IsInNetwork"],
           from_time_incl: from,
           to_time_excl: end - 1,
           heatmap_from_time_incl: iso(end - 28 * DAY_MS),
@@ -1618,6 +1654,9 @@ export function route(
         ),
     };
   }
+  // X's Edit post opens the composer with the post's text, its Post reading Update (bundle.Compose:
+  // isEdit), and no audience to pick.
+  const editing = lower === "compose" ? state.post(q.get("edit") ?? "") : undefined;
   if (lower === "compose")
     return {
       title: "Compose new post / X",
@@ -1625,9 +1664,22 @@ export function route(
       render: () =>
         routeDialog(
           "",
-          `${editor(state, "What's happening?")}${toolBar('<button data-testid="tweetButton">Post</button>', true)}`,
+          editing === undefined
+            ? `${editor(state, "What's happening?")}${toolBar('<button data-testid="tweetButton">Post</button>', true)}`
+            : `${editor(state, "What's happening?", editing.text)}${toolBar(`<button data-testid="tweetButton" data-edit="${editing.postId}">Update</button>`)}`,
         ),
     };
+  // x.com/i/web/status/<id>, X's link to a post by its id alone, goes to the post's own page.
+  if (lower === "i" && second === "web" && third === "status" && fourth !== undefined) {
+    const p = state.post(fourth);
+    if (p !== undefined)
+      return {
+        title: "X",
+        requests: [],
+        redirect: `/${p.author.handle}/status/${p.postId}`,
+        render: () => "",
+      };
+  }
 
   if (first !== "" && !RESERVED.has(lower)) {
     const u = state.byHandle(first);

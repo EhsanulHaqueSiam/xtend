@@ -21,6 +21,9 @@ export const xAge = (iso: string, now = Date.now()) => {
 };
 
 /** The focal post's timestamp line, as X prints it under the post: 2:41 PM · Oct 31, 2026. */
+/** "10:42 AM": the time alone, as X writes it in a stamp. */
+export const xClock = (iso: string) => CLOCK.format(new Date(iso));
+
 export const xStamp = (iso: string) => {
   const at = new Date(iso);
   return `${CLOCK.format(at)} · ${FULL_DATE.format(at)}`;

@@ -33,7 +33,7 @@ import {
   type OverlaySave,
   type OverlayReply,
 } from "../ipc/channels.ts";
-import { X_ARTICLE, X_ARTICLE_REPLIES, X_COMPOSER, X_REPLY_ROWS } from "../overlay/xDom.ts";
+import { X_ARTICLE, X_ARTICLE_REPLIES, X_COMPOSER, X_EDIT, X_REPLY_ROWS } from "../overlay/xDom.ts";
 
 const RECONNECT_MS = 2_000;
 const POLL_MS = 250;
@@ -60,6 +60,8 @@ export interface DesktopCommandsOptions {
   readonly navigate: (url: string) => void;
   /** Resolves with the id of the next post the session creates (from the CreateTweet response). */
   readonly nextCreatedPost: () => Promise<string>;
+  /** X's create requests and answers, for an edit to tell its own apart (see `editCreates`). */
+  readonly editCreates: EditCreates;
   readonly log: (message: string, detail?: unknown) => void;
 }
 
@@ -94,6 +96,7 @@ export function attachDesktopCommands(
     cdp: (method, params) => contents.debugger.sendCommand(method, params),
     navigate: options.navigate,
     nextCreatedPost: options.nextCreatedPost,
+    editCreates: options.editCreates,
     sessionPostingEnabled: async () => {
       if (client === undefined) throw new Error("service not connected");
       const settings = await Effect.runPromise(client[WS_METHODS.settingsGet]({}));
@@ -214,6 +217,8 @@ interface CommandRunnerDeps {
   readonly cdp: Cdp;
   readonly navigate: (url: string) => void;
   readonly nextCreatedPost: () => Promise<string>;
+  /** Fed by the capture; without it an edit cannot tell its answer and ends unconfirmed. */
+  readonly editCreates?: EditCreates;
   /** The service's setting, asked again before every post. */
   readonly sessionPostingEnabled: () => Promise<boolean>;
 }
@@ -253,6 +258,29 @@ export function commandRunner(deps: CommandRunnerDeps) {
           deadline,
         );
         return { type: "sessionPost", postId };
+      }
+      case "sessionEditPost": {
+        // The service's own deadline too: an edit that reached the desktop late never starts.
+        const by = Math.min(deadline, command.deadline);
+        if (Date.now() >= by)
+          throw new NotAttempted("the edit waited out its time behind another command");
+        const enabled = await until(
+          deps.sessionPostingEnabled(),
+          by,
+          "Settings did not answer",
+        ).catch((error: unknown) => {
+          throw untouched(error);
+        });
+        if (!enabled) throw new NotAttempted("session posting is off in Settings");
+        const postId = await editThroughComposer(
+          deps.contents,
+          deps.cdp,
+          command,
+          deps.editCreates ?? editCreates(),
+          by,
+          deps.sessionPostingEnabled,
+        );
+        return { type: "sessionEditPost", postId };
       }
       case "sessionLike": {
         const enabled = await deps.sessionPostingEnabled().catch((error: unknown) => {
@@ -974,6 +1002,365 @@ export async function likeOnPage(
       throw new Error("x.com did not show the post as liked");
     },
   );
+}
+
+// Xtend's engine scripts open X's menus one at a time behind this queue in X's page (state/x.ts
+// xMenuRun). An edit holds it throughout, so none of them opens another menu or presses a row.
+const HOLD_MENUS = `(async () => {
+  const previous = window.__xtendMenuQueue;
+  let release;
+  const held = new Promise((resolve) => { release = resolve; });
+  window.__xtendMenuQueue = held;
+  window.__xtendEditRelease = () => { release(); if (window.__xtendMenuQueue === held) delete window.__xtendMenuQueue; };
+  if (previous) await previous;
+  return true;
+})()`;
+const RELEASE_MENUS = "window.__xtendEditRelease?.(), true";
+
+// X's Edit post row in the menu X's caret (`this`) opened, found as Xtend's engine scripts find a
+// caret's menu (state/x.ts menuFor): the one its aria-controls names, else the only one open.
+// "none" when that menu has rows but no Edit post; null until X has drawn it.
+const OWN_EDIT_ROW = `function (row) {
+  if (this.getAttribute("aria-expanded") !== "true") return null;
+  const controlled = (this.getAttribute("aria-controls") ?? "").split(" ").map((id) => document.getElementById(id)?.closest('[role="menu"]')).find(Boolean);
+  const menus = document.querySelectorAll('[role="menu"]');
+  const menu = controlled ?? (menus.length === 1 ? menus[0] : null);
+  if (!menu?.querySelector('[role="menuitem"]')) return null;
+  return menu.querySelector(row) ?? "none";
+}`;
+
+// The post X's composer edits: X's Edit post row opens /compose/post with it in the route's state
+// ({ previousTweetId }, which X's history keeps under `state`), and X's Update sends that id.
+const EDITING = `location.pathname === "/compose/post" ? (history.state?.state?.previousTweetId ?? null) : null`;
+
+/** X's Edit post row in the menu `caret` (a page object) opened; fails at `deadline`. */
+async function ownEditRow(cdp: Cdp, caret: string, deadline: number): Promise<number> {
+  const { result } = (await cdp("Runtime.callFunctionOn", {
+    objectId: caret,
+    functionDeclaration: OWN_EDIT_ROW,
+    arguments: [{ value: X_EDIT.row }],
+    returnByValue: false,
+  })) as { result: { objectId?: string; value?: unknown } };
+  if (result.objectId !== undefined)
+    return ((await cdp("DOM.requestNode", { objectId: result.objectId })) as { nodeId: number })
+      .nodeId;
+  if (result.value === "none" || Date.now() >= deadline)
+    throw new Error("X offers no Edit post on it now (an hour after posting, 5 edits)");
+  await sleep(POLL_MS);
+  return ownEditRow(cdp, caret, deadline);
+}
+
+// On the node just before a press: still in X's page, and its control (the button around it) is
+// what a press at (x, y) lands on, not a layer over it.
+const LANDS_ON = `function (x, y) {
+  const control = this.closest('button, [role="button"], [role="menuitem"]') ?? this;
+  return this.isConnected && control.contains(document.elementFromPoint(x, y));
+}`;
+
+/**
+ * Where the edit presses X's Update or its confirm: refused untouched unless the node is what a
+ * press at its middle lands on. `cdp` is the edit's own, which ends every call by its deadline.
+ */
+async function aimEdit(cdp: Cdp, nodeId: number): Promise<{ x: number; y: number }> {
+  try {
+    const { model } = (await cdp("DOM.getBoxModel", { nodeId })) as {
+      model: { content: Array<number> };
+    };
+    const [x1, y1, , , x2, y2] = model.content as [number, number, number, number, number, number];
+    const at = { x: (x1 + x2) / 2, y: (y1 + y2) / 2 };
+    const { result } = (await cdp("Runtime.callFunctionOn", {
+      objectId: await objectOf(cdp, nodeId),
+      functionDeclaration: LANDS_ON,
+      arguments: [{ value: at.x }, { value: at.y }],
+      returnByValue: true,
+    })) as { result: { value: unknown } };
+    if (result.value !== true) throw new Error("x.com's control was covered or gone at the press");
+    return at;
+  } catch (error) {
+    throw untouched(error);
+  }
+}
+
+/** Empties X's text box for the edit and resolves with it; fails when X's editor still holds text. */
+async function clearForEdit(cdp: Cdp, deadline: number): Promise<number> {
+  const box = await control(cdp, TEXTBOX, "text box", deadline);
+  await click(cdp, box);
+  // Chromium's own selectAll command, so no platform chord; then one Backspace clears it.
+  for (const [key, code, keyCode, commands] of [
+    ["a", "KeyA", 65, ["selectAll"]],
+    ["Backspace", "Backspace", 8, []],
+  ] as const) {
+    await cdp("Input.dispatchKeyEvent", {
+      type: "rawKeyDown",
+      key,
+      code,
+      windowsVirtualKeyCode: keyCode,
+      commands,
+    });
+    await cdp("Input.dispatchKeyEvent", {
+      type: "keyUp",
+      key,
+      code,
+      windowsVirtualKeyCode: keyCode,
+    });
+  }
+  if ((await textOf(cdp, box)) !== "") throw new Error("text left");
+  return box;
+}
+
+// A text as X's composer sends it, to compare: whitespace as one space, a t.co link by its shape.
+const asSent = (text: string) =>
+  text
+    .normalize("NFC")
+    .replace(/https:\/\/t\.co\/\w+/g, "https://t.co/")
+    .replace(/\s+/g, " ")
+    .trim();
+const field = (value: unknown, key: string) =>
+  typeof value === "object" && value !== null ? Reflect.get(value, key) : undefined;
+
+/**
+ * X's create requests (CreateTweet, CreateNoteTweet) and their answers while an edit listens, by
+ * DevTools request id: each request's body as it is read (null when the capture could not) and
+ * X's answer to it.
+ */
+export function editCreates() {
+  let open: Map<string, { body?: string | null; postId?: string }> | null = null;
+  return {
+    /** Listens from now; the function it answers stops and forgets. */
+    listen: () => {
+      const mine = new Map<string, { body?: string | null; postId?: string }>();
+      open = mine;
+      return () => {
+        if (open === mine) open = null;
+      };
+    },
+    request: (id: string, body: Promise<string | undefined>) => {
+      if (open === null) return;
+      const entry: { body?: string | null; postId?: string } = {};
+      open.set(id, entry);
+      void body.then(
+        (read) => void (entry.body = read ?? null),
+        () => void (entry.body = null),
+      );
+    },
+    answered: (id: string, postId: string) => {
+      const entry = open?.get(id);
+      if (entry !== undefined) entry.postId = postId;
+    },
+    /**
+     * The edit's new id once X answered the one request that is this edit: its edit target is
+     * `previous` and its whole text `text`. Uncertain when a body could not be read or two requests
+     * are this edit; null while a body is read or X has not answered.
+     */
+    outcome: (previous: string, text: string): { readonly postId: string } | "uncertain" | null => {
+      let mine = 0;
+      let postId: string | undefined;
+      for (const entry of open?.values() ?? []) {
+        if (entry.body === undefined) return null;
+        let variables: unknown;
+        try {
+          variables = entry.body === null ? undefined : field(JSON.parse(entry.body), "variables");
+        } catch {
+          variables = undefined;
+        }
+        if (typeof variables !== "object" || variables === null) return "uncertain";
+        const typed = field(variables, "tweet_text");
+        if (
+          field(field(variables, "edit_options"), "previous_tweet_id") === previous &&
+          typeof typed === "string" &&
+          asSent(typed) === asSent(text)
+        ) {
+          mine++;
+          postId = entry.postId;
+        }
+      }
+      if (mine > 1) return "uncertain";
+      return postId === undefined ? null : { postId };
+    },
+  };
+}
+type EditCreates = ReturnType<typeof editCreates>;
+
+/**
+ * Edits the user's own post as they would: X's "..." on its page, the Edit post row of the menu
+ * that press opened, X's text replaced in X's composer (styles as sessionPost types them), Update,
+ * and X's confirm before the last edit. Each press first checks the time, the setting (`allowed`)
+ * and that X's composer edits this post; before Update a failure changes nothing.
+ */
+export async function editThroughComposer(
+  contents: Pick<Electron.WebContents, "loadURL">,
+  raw: Cdp,
+  command: Extract<DesktopCommand, { type: "sessionEditPost" }>,
+  creates: EditCreates,
+  deadline: number,
+  allowed: () => Promise<boolean>,
+): Promise<string> {
+  const step = (ms: number) => Math.min(Date.now() + ms, deadline);
+  const id = command.postId;
+  const page = `https://x.com/i/web/status/${id}`;
+  const late = "the edit ran out of its time";
+  // The edit's DevTools: every call ends by the deadline, and none starts or goes on after it, so
+  // a late answer never lets the next input go. Whether a press is still down, to let it go.
+  let down = false;
+  const cdp: Cdp = async (method, params) => {
+    if (Date.now() >= deadline) throw new Error(late);
+    if (method === "Input.dispatchMouseEvent" && params?.type === "mousePressed") down = true;
+    const answer = await until(raw(method, params), deadline, late);
+    if (method === "Input.dispatchMouseEvent" && params?.type === "mouseReleased") down = false;
+    if (Date.now() >= deadline) throw new Error(late);
+    return answer;
+  };
+  // Once true, X's Update (or its confirm) may have reached X.
+  let pressed = false;
+  const press = async (at: { x: number; y: number }) => {
+    pressed = true;
+    for (const type of ["mousePressed", "mouseReleased"])
+      await cdp("Input.dispatchMouseEvent", { type, ...at, button: "left", clickCount: 1 });
+  };
+  const evaluate = async (expression: string, awaitPromise = false) =>
+    (
+      (await cdp("Runtime.evaluate", { expression, returnByValue: true, awaitPromise })) as {
+        result: { value: unknown };
+      }
+    ).result.value;
+  const editingIt = async () => {
+    if ((await evaluate(EDITING)) !== id)
+      throw new Error("x.com's composer is not editing this post");
+  };
+  // Bounded by the deadline: an answer that comes after it must not let a press through.
+  const mayPress = async () => {
+    if (Date.now() >= deadline) throw new Error(late);
+    if (!(await until(allowed(), deadline, late)))
+      throw new Error("session posting is off in Settings");
+    await until(editingIt(), deadline, late);
+  };
+  const unchanged = (error: unknown) =>
+    new NotAttempted(
+      `${error instanceof Error ? error.message : String(error)}; the post was not changed`,
+    );
+  // The post's own article: its time links to it (to its history once edited). A post quoting it
+  // links there too, but comes after it on the post's page, so the first match is the post.
+  const caret = `article:has(a[href$="/status/${id}"] time, a[href$="/status/${id}/history"] time) ${X_EDIT.caret}`;
+  const ready = async () => {
+    await until(contents.loadURL(page), deadline, "x.com did not load the post");
+    await until(evaluate(HOLD_MENUS, true), deadline, "Xtend kept X's menus busy");
+    const shownBy = step(COMPOSER_TIMEOUT_MS);
+    let own = (await query(cdp, caret))[0];
+    while (own === undefined) {
+      if (Date.now() >= shownBy) throw new Error("x.com did not show the post");
+      await sleep(POLL_MS);
+      own = (await query(cdp, caret))[0];
+    }
+    const ownObject = await objectOf(cdp, own);
+    await click(cdp, own);
+    const row = await ownEditRow(cdp, ownObject, step(CONTROL_TIMEOUT_MS)).catch(async (error) => {
+      // X's menu, left open, would take the engine's next press.
+      for (const type of ["rawKeyDown", "keyUp"] as const)
+        await cdp("Input.dispatchKeyEvent", {
+          type,
+          key: "Escape",
+          code: "Escape",
+          windowsVirtualKeyCode: 27,
+        });
+      throw error;
+    });
+    await click(cdp, row);
+    await waitForText(cdp, X_EDIT.button, X_EDIT.word, step(COMPOSER_TIMEOUT_MS)).catch(() => {
+      throw new Error("x.com's composer did not open the post to edit");
+    });
+    await editingIt();
+    const box = await clearForEdit(cdp, deadline);
+    await typeText(cdp, box, command.text, command.styles ?? []);
+    // Checked with no styles too: text typed after what X left would update the post with both.
+    const shown = JSON.parse(String(await callOn(cdp, box, EDITOR_TEXT))) as { text: string };
+    if (shown.text !== expectedEditor(command.text, []).text)
+      throw new Error("x.com's composer did not take the new text");
+    const button = await waitForNode(cdp, X_EDIT.button, step(CONTROL_TIMEOUT_MS), enabled).catch(
+      () => {
+        throw new Error("x.com kept Update off");
+      },
+    );
+    if ((await textOf(cdp, button)) !== X_EDIT.word)
+      throw new Error("x.com's composer left edit mode");
+    await mayPress();
+    return button;
+  };
+  let stop = () => {};
+  try {
+    const button = await ready().catch((error: unknown) => {
+      throw unchanged(error);
+    });
+    // X's create requests from the press on; only the one that is this edit counts.
+    stop = creates.listen();
+    await press(await aimEdit(cdp, button));
+    const confirmBy = step(CREATED_TIMEOUT_MS);
+    let confirmed = false;
+    for (;;) {
+      const outcome = creates.outcome(id, command.text);
+      if (outcome === "uncertain")
+        throw new Error(
+          "x.com's answers could not be told apart as this edit's; it may have gone through",
+        );
+      if (outcome !== null) return outcome.postId;
+      if (Date.now() >= confirmBy) throw new Error("x.com did not confirm the edit");
+      const [sheet] = confirmed ? [] : await query(cdp, X_EDIT.lastEditConfirm);
+      if (sheet !== undefined && (await textOf(cdp, sheet)) === X_EDIT.word) {
+        // X sends a last edit only from this confirm, so a refusal here changes nothing.
+        await mayPress().catch((error: unknown) => {
+          throw unchanged(error);
+        });
+        await press(await aimEdit(cdp, sheet));
+        confirmed = true;
+      }
+      await sleep(POLL_MS);
+    }
+  } catch (error) {
+    // No press stays down, whatever stopped the edit: let go off the control, at the page's
+    // corner (X's backdrop there), so the press never completes into a click on it. Both go back
+    // to back, as DevTools orders input; each wait is bounded, and the release goes regardless.
+    const soon = Date.now() + CONTROL_TIMEOUT_MS;
+    if (down) {
+      const corner = { x: 0, y: 0, button: "left", clickCount: 1 };
+      await Promise.allSettled(
+        (["mouseMoved", "mouseReleased"] as const).map((type) =>
+          until(
+            Promise.resolve().then(() => raw("Input.dispatchMouseEvent", { type, ...corner })),
+            soon,
+            late,
+          ),
+        ),
+      );
+    }
+    if (Date.now() < deadline) throw error;
+    // Past the deadline: X's page loads again before the command settles, so the next starts clean,
+    // unless X answers with a page that is not the edit's own (the post's, or the composer it
+    // opened): the user moved it. A page that does not answer is taken as stuck on the edit's.
+    const where = await until(
+      raw("Runtime.evaluate", { expression: "location.pathname", returnByValue: true }),
+      soon,
+      late,
+    ).then(
+      (answer) => String((answer as { result: { value: unknown } }).result.value),
+      () => "",
+    );
+    if (
+      where === "" ||
+      where === "/compose/post" ||
+      new RegExp(`^/(?:i/web|[^/]+)/status/${id}(?:/history)?$`).test(where)
+    )
+      await until(contents.loadURL(page), soon, late).catch(() => {});
+    if (pressed)
+      throw new Error(`${late} after its press; it may have gone through`, { cause: error });
+    throw error instanceof NotAttempted ? error : unchanged(error);
+  } finally {
+    stop();
+    // Sent even late, the wait bounded: a page that no longer answers must not hold the queue.
+    await until(
+      raw("Runtime.evaluate", { expression: RELEASE_MENUS, returnByValue: true }),
+      deadline,
+      late,
+    ).catch(() => {});
+  }
 }
 
 /**

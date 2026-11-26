@@ -140,6 +140,9 @@ const heldOn = <A>(work: Promise<A>, signal: AbortSignal) =>
 export const xGo = (url: string, signal?: AbortSignal): Promise<boolean> =>
   signal === undefined ? go(url) : heldOn(go(url), signal).then((moved) => moved ?? false);
 
+/** The x.com page the engine shows now; null while there is no engine (a browser). */
+export const xHere = () => (element !== null && ready ? element.getURL() : null);
+
 const go = (url: string): Promise<boolean> => {
   if (!isXUrl(url)) return Promise.resolve(false);
   const load = () => xNavigate(url).then(() => true);
@@ -556,17 +559,19 @@ let analyticsPresses: Promise<unknown> = Promise.resolve();
 let analyticsLatest: object | null = null;
 
 /**
- * The heading each of X's analytics pages draws. X's URL changes before its router redraws, so a
- * page is X's own only once its heading is on screen too.
+ * The heading each of X's analytics pages draws, or the words that stand for it. X's URL changes
+ * before its router redraws, so a page is X's own only once one of them is on screen too.
  */
-const ANALYTICS_HEADINGS: Readonly<Record<string, string>> = {
-  "/i/account_analytics": "Account overview",
-  "/i/account_analytics/content": "Date",
-  "/i/account_analytics/video": "Video overview",
-  "/i/account_analytics/audience": "Gender",
+const ANALYTICS_HEADINGS: Readonly<Record<string, ReadonlyArray<string>>> = {
+  "/i/account_analytics": ["Account overview"],
+  "/i/account_analytics/content": ["Date"],
+  "/i/account_analytics/video": ["Video overview"],
+  "/i/account_analytics/audience": ["Gender"],
+  // X's Live list: its table's first column, or its line when it lists none.
+  "/i/account_analytics/live": ["Status", "No broadcasts available for the selected filter"],
 };
-const analyticsDrawn = (path: string, heading: string) =>
-  `(location.pathname === ${JSON.stringify(path)} && [...document.querySelectorAll("*")].some((e) => e.childElementCount === 0 && e.textContent.trim() === ${JSON.stringify(heading)}))`;
+const analyticsDrawn = (path: string, headings: ReadonlyArray<string>) =>
+  `(location.pathname === ${JSON.stringify(path)} && [...document.querySelectorAll("*")].some((e) => e.childElementCount === 0 && ${JSON.stringify(headings)}.includes(e.textContent.trim())))`;
 
 /** Runs `code` in X's page; a full load under it, or `signal`, ends it as null, since it never settles then. */
 export const xRunHeld = (code: string, signal: AbortSignal) =>
@@ -649,7 +654,7 @@ export const xAnalyticsSelected = async (
 
 const readSelected = async (
   path: string,
-  heading: string,
+  heading: ReadonlyArray<string>,
   labels: ReadonlyArray<string>,
   signal: AbortSignal,
   expect: string | undefined,
@@ -717,6 +722,9 @@ export const xAnalyticsUpsell = async (
   }
   return null;
 };
+
+/** X's Live analytics page; a broadcast's own page is `/<broadcastId>` under it. */
+export const LIVE_ANALYTICS = "/i/account_analytics/live";
 
 /** X's Radar (Premium): the user's saved queries; a query's page is `/<id>`, X's form `/new`. */
 export const RADAR_URL = "https://x.com/i/radar";

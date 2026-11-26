@@ -37,6 +37,8 @@ class FakeDebugger extends NodeEvents.EventEmitter {
   /** DevTools' answer to a streaming read: what it buffered before the read began. */
   streamRead: Promise<{ bufferedData?: string }> = Promise.resolve({});
   private readonly bodies = new Map<string, { body: string; base64Encoded: boolean }>();
+  /** Request bodies DevTools keeps only for asking (a long post's). */
+  readonly requestBodies = new Map<string, string>();
 
   attach() {
     if (this.held) throw new Error("Another debugger is already attached");
@@ -51,6 +53,8 @@ class FakeDebugger extends NodeEvents.EventEmitter {
   async sendCommand(method: string, params?: { requestId?: string }) {
     this.commands.push(method);
     if (method === "Network.streamResourceContent") return this.streamRead;
+    if (method === "Network.getRequestPostData")
+      return { postData: this.requestBodies.get(params?.requestId ?? "") };
     if (method !== "Network.getResponseBody") return {};
     const body = this.bodies.get(params?.requestId ?? "");
     if (body === undefined) throw new Error("No resource with given identifier found");
@@ -554,5 +558,47 @@ it("hands the window the conversation X creates for a new chat", async () => {
   debug.finished("1");
   await vi.waitFor(() =>
     expect(heard).toMatchObject([{ kind: "graphql", op: "CreateGrokConversation", body: created }]),
+  );
+});
+
+it("hands an edit each create request's body by its id, inline, in parts or asked of DevTools, and each answer's id", async () => {
+  const seen: Array<string> = [];
+  detach = attachSessionCapture({ debugger: debug } as unknown as Electron.WebContents, {
+    serviceUrl: "http://127.0.0.1:4820",
+    serviceToken: "tok",
+    accountId: 1,
+    queueDir,
+    log: () => {},
+    onCreateRequest: (requestId, body) => void body.then((b) => seen.push(`${requestId} ${b}`)),
+    onCreatedPost: (postId, requestId) => seen.push(`answer ${requestId} ${postId}`),
+  });
+  const ask = (requestId: string, request: Record<string, unknown>) =>
+    debug.emit("message", {}, "Network.requestWillBeSent", {
+      requestId,
+      request: { url: `${GRAPHQL}/CreateNoteTweet`, ...request },
+    });
+  ask("1", { postData: "inline" });
+  ask("2", {
+    postDataEntries: [
+      { bytes: Buffer.from("in ").toString("base64") },
+      { bytes: Buffer.from("parts").toString("base64") },
+    ],
+  });
+  debug.requestBodies.set("3", "asked");
+  ask("3", { hasPostData: true });
+  ask("4", {});
+  const { __typename: _, ...result } = tweet("9");
+  debug.received("1", `${GRAPHQL}/CreateNoteTweet`, {
+    data: { notetweet_create: { tweet_results: { result } } },
+  });
+  debug.finished("1");
+  await vi.waitFor(() =>
+    expect(seen.toSorted()).toEqual([
+      "1 inline",
+      "2 in parts",
+      "3 asked",
+      "4 undefined",
+      "answer 1 9",
+    ]),
   );
 });

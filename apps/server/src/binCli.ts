@@ -126,6 +126,7 @@ const post = Command.make("post", { text: Argument.String("text") }).pipe(
   ),
 );
 
+// No edit command: X's Edit post goes through the session only, for the user's own click.
 const queue = Command.make("queue").pipe(
   Command.withDescription("Drafts waiting in the queue."),
   Command.withHandler(() =>

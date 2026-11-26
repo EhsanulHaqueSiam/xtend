@@ -23,7 +23,7 @@ describe("AccountStore", () => {
     Effect.gen(function* () {
       const accounts = yield* AccountStore.AccountStore;
       const settings = yield* SettingsStore.SettingsStore;
-      yield* settings.update({ handle: "siam" });
+      yield* settings.update({ handle: "siam", longPosts: true });
       const created = yield* accounts.create({ handle: "Naval", label: "Client" });
       const naval = created.accounts.find((a) => a.label === "Client")!;
       expect([naval.handle, created.currentId]).toEqual(["naval", 1]);
@@ -31,6 +31,8 @@ describe("AccountStore", () => {
       const switched = yield* accounts.select(naval.id);
       expect(switched.currentId).toBe(naval.id);
       expect((yield* settings.get).handle).toBe("naval");
+      // One account's Premium is never another's: unknown until X's composer shows it again.
+      expect((yield* settings.get).longPosts).toBe(null);
       // Setting the handle in Settings renames the current account, not the first one.
       yield* settings.update({ handle: "navalr" });
       expect((yield* accounts.list).accounts.map((a) => a.handle)).toEqual(["siam", "navalr"]);

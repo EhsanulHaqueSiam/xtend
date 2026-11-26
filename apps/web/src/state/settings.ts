@@ -1,12 +1,12 @@
 import { useAtomValue } from "@effect/atom-react";
-import { WS_METHODS, type SettingsUpdate } from "@xtend/contracts";
+import { postLimit, WS_METHODS, type SettingsUpdate } from "@xtend/contracts";
 import * as Effect from "effect/Effect";
 import * as Atom from "effect/reactivity/Atom";
 import * as AsyncResult from "effect/reactivity/AsyncResult";
 
 import { isElectron } from "../env";
 import { clientRuntime, XtendClient } from "../rpc/client";
-import { viewerHandleAtom } from "./engine";
+import { longPostsAtom, viewerHandleAtom } from "./engine";
 import { eventsOfTypeAtom } from "./shell";
 
 /** How many times the service adopted the session's handle; settings refetch when it moves. */
@@ -56,5 +56,18 @@ export function useSessionLane(): boolean {
       AsyncResult.map(settings, (s) => s.sessionPostingEnabled),
       () => false,
     )
+  );
+}
+
+/** The account's post limit: X's own word from the engine, else what the desktop last stored. */
+export function usePostLimit(): number {
+  const fromX = useAtomValue(longPostsAtom);
+  const settings = useAtomValue(settingsAtom);
+  return postLimit(
+    fromX ??
+      AsyncResult.getOrElse(
+        AsyncResult.map(settings, (s) => s.longPosts === true),
+        () => false,
+      ),
   );
 }

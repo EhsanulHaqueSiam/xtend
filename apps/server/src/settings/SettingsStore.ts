@@ -39,6 +39,7 @@ interface SettingsRow {
   readonly assist_binary_path: string;
   readonly assist_key: string | null;
   readonly pool_sharing: number;
+  readonly long_posts: number | null;
 }
 
 interface SpendRow {
@@ -102,6 +103,7 @@ const make = Effect.gen(function* () {
     assistBinaryPath: r.assist_binary_path,
     assistKeySet: r.assist_key !== null,
     poolSharing: r.pool_sharing === 1,
+    longPosts: r.long_posts === null ? null : r.long_posts === 1,
   });
 
   const get = row.pipe(
@@ -165,6 +167,7 @@ const make = Effect.gen(function* () {
           assist_binary_path = ${patch.assistBinaryPath?.trim() ?? current.assist_binary_path},
           assist_key = ${assistKey},
           pool_sharing = ${patch.poolSharing === undefined ? current.pool_sharing : patch.poolSharing ? 1 : 0},
+          long_posts = ${patch.longPosts === undefined ? current.long_posts : patch.longPosts ? 1 : 0},
           updated_at = ${at}
         WHERE id = 1
       `;

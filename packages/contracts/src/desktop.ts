@@ -3,7 +3,14 @@ import * as Rpc from "effect/rpc/Rpc";
 import * as RpcGroup from "effect/rpc/RpcGroup";
 
 import { XId } from "./baseSchemas.ts";
-import { DraftPoll, PickedGif, PostCommunity, ReplySettings, TextStyle } from "./compose.ts";
+import {
+  DraftPoll,
+  PickedGif,
+  PostCommunity,
+  PostEdit,
+  ReplySettings,
+  TextStyle,
+} from "./compose.ts";
 import type { ObservedPost } from "./observation.ts";
 
 /**
@@ -29,6 +36,16 @@ export const DesktopCommand = Schema.Union([
     styles: Schema.optional(Schema.Array(TextStyle)),
     /** Picked in X's own "Choose audience" card, before anything else. */
     community: Schema.optional(PostCommunity),
+  }),
+  /**
+   * Edits the user's own post through X's own Edit post (same setting as sessionPost): X's "..." on
+   * its page, X's Edit row, the text replaced in X's composer, X's Update.
+   */
+  Schema.Struct({
+    type: Schema.Literal("sessionEditPost"),
+    ...PostEdit.fields,
+    /** When the service stops waiting (epoch ms): the edit never starts or presses after it. */
+    deadline: Schema.Number,
   }),
   Schema.Struct({ type: Schema.Literal("sessionNavigate"), url: Schema.String }),
   /** Clicks X's own like on the post's page in the session view; same setting as sessionPost. */
@@ -60,6 +77,8 @@ export const DESKTOP_COMMAND_LIMIT_MS = {
   sessionScreenshot: 20_000,
   sessionNavigate: 20_000,
   sessionPost: 180_000,
+  // The post's page, X's menu, X's composer and X's create: no upload.
+  sessionEditPost: 60_000,
   sessionLike: 30_000,
   sessionDm: 45_000,
   // X saves an Article's content a few seconds after the last change, and the cover uploads first.
@@ -69,6 +88,8 @@ export const DESKTOP_COMMAND_LIMIT_MS = {
 export const DesktopCommandResult = Schema.Union([
   Schema.Struct({ type: Schema.Literal("sessionScreenshot"), pngBase64: Schema.String }),
   Schema.Struct({ type: Schema.Literal("sessionPost"), postId: XId }),
+  /** The new version's id; X keeps the earlier one as its history. */
+  Schema.Struct({ type: Schema.Literal("sessionEditPost"), postId: XId }),
   Schema.Struct({ type: Schema.Literal("sessionNavigate") }),
   Schema.Struct({ type: Schema.Literal("sessionLike") }),
   Schema.Struct({ type: Schema.Literal("sessionDm") }),
@@ -259,6 +280,11 @@ export interface EnginePost extends ObservedPost {
   readonly edits: ReadonlyArray<string>;
   readonly editsRemaining: number | null;
   readonly editableUntil: string | null;
+  /**
+   * The text X's Edit post opens its composer with, where it differs from `text` and its `styles`
+   * (a link expanded, a trailing card link kept); absent while X allows no edit.
+   */
+  readonly edit?: { readonly text: string; readonly styles: ReadonlyArray<TextStyle> };
   /** X's "Made with AI" label: the media was declared or detected as AI-generated. */
   readonly aiGenerated: boolean;
   /** The bold and italic X draws on the shown `text` (a long post's `richtext_tags`); absent when none. */
@@ -328,6 +354,29 @@ export interface EngineSpaceStats {
   /** Listeners at each second of the Space (`view_count_graph`); X's peak is its largest. */
   readonly concurrent: ReadonlyArray<number>;
   readonly speakers: ReadonlyArray<Pick<EngineSpacePerson, "handle" | "name" | "avatarUrl">>;
+}
+
+/** One of the user's broadcasts, as X's Live analytics list it (liveOverviewProviderQuery). */
+export interface EngineBroadcastRow {
+  readonly broadcastId: string;
+  /** X's title for it (its `status`); empty when it has none. */
+  readonly title: string;
+  /** X's own state: "Running", "NotStarted", "Ended", "Canceled", "PrePublished", "TimedOut". */
+  readonly state: string;
+  readonly startedAt: string | null;
+  readonly endedAt: string | null;
+  readonly scheduledStart: string | null;
+  readonly imageUrl: string | null;
+  readonly views: number;
+  /** X's unique viewers. */
+  readonly viewers: number;
+  readonly minutesWatched: number;
+}
+
+/** X's numbers for one of the user's broadcasts (liveDetailsQuery). */
+export interface EngineBroadcastStats extends EngineBroadcastRow {
+  /** Viewers at each minute of the broadcast (`concurrent_viewers_time_series`); X's peak is its largest. */
+  readonly concurrent: ReadonlyArray<number>;
 }
 
 /** One X Space as X's AudioSpaceById answers: live, scheduled, ended or recorded. */
@@ -788,6 +837,18 @@ export interface EngineBatch {
   readonly spaceAnalytics?:
     | { readonly kind: "list"; readonly spaces: ReadonlyArray<EngineSpaceRow> }
     | { readonly kind: "space"; readonly space: EngineSpaceStats };
+  /**
+   * X's Live analytics: the first page of the user's broadcasts and whether X has more, one
+   * broadcast's numbers, or one X answered with none (deleted).
+   */
+  readonly liveAnalytics?:
+    | {
+        readonly kind: "list";
+        readonly broadcasts: ReadonlyArray<EngineBroadcastRow>;
+        readonly more: boolean;
+      }
+    | { readonly kind: "broadcast"; readonly broadcast: EngineBroadcastStats }
+    | { readonly kind: "unavailable"; readonly broadcastId: string };
   /** The Space X answered AudioSpaceById for with no Space (ended, removed, private, or an error). */
   readonly spaceUnavailable?: string;
   /** What the response told the moderators of each Community it names (`EngineCommunityAdmin`). */
@@ -872,6 +933,14 @@ export interface EngineAudienceRow {
   /** X's client app id, which X names iOS, Android, Web or Other. */
   readonly app: string | null;
   readonly country: string | null;
+  /** Whether it came from the user's followers (X's `is_in_network`); null when X's row does not say. */
+  readonly inNetwork: boolean | null;
+}
+
+/** One hour of X's Active times: its count of the engagement X's page asked about. */
+export interface EngineActiveHour {
+  readonly at: string;
+  readonly count: number;
 }
 
 export type EngineAccountAnalytics =
@@ -898,6 +967,12 @@ export type EngineAccountAnalytics =
       readonly kind: "audience";
       readonly days: number;
       readonly rows: ReadonlyArray<EngineAudienceRow>;
+      /**
+       * X's Active times: the last 28 days by the hour, whatever the range, for the one metric X's
+       * page asked about (`activeMetric`, X's metric id such as `Likes`).
+       */
+      readonly activeMetric: string | null;
+      readonly active: ReadonlyArray<EngineActiveHour>;
     };
 /** A news story X lists in Explore: Grok's summary of it, and X's tabs of posts about it. */
 export interface EngineStory {

@@ -9,7 +9,6 @@ import {
   MEDIA_MAX_IMAGES,
   type MediaKind,
   type PickedGif,
-  POST_LIMIT,
   type PostCommunity,
   type ReplySettings,
   type TextStyle,
@@ -41,7 +40,7 @@ import {
   sessionPostNowAtom,
 } from "../../state/compose";
 import { canFormatAtom, engineAtom, youFollow } from "../../state/engine";
-import { settingsAtom, useSessionLane } from "../../state/settings";
+import { settingsAtom, usePostLimit, useSessionLane } from "../../state/settings";
 import { xGifIdle } from "../../state/x";
 import { failText } from "../compose/AssistPanel";
 import { AudiencePicker } from "../compose/AudiencePicker";
@@ -212,7 +211,7 @@ function Tool({
 /**
  * X's "What's happening?" at the top of Home. Post is one click through the user's own session,
  * free, X's own composer setting the poll, the GIF and the reply limit; mentions come from people
- * the engine already saw. With session actions off, on the web alone, or over 280 characters, the box moves
+ * the engine already saw. With session actions off, on the web alone, or over the account's limit, the box moves
  * to Compose as a draft, where the lane and its price are shown.
  */
 export function HomeComposer() {
@@ -220,6 +219,7 @@ export function HomeComposer() {
   const navigate = useNavigate();
   const engine = useAtomValue(engineAtom);
   const settings = AsyncResult.getOrElse(useAtomValue(settingsAtom), () => null);
+  const limit = usePostLimit();
   const session = useSessionLane();
   const sessionPost = useSessionPost();
   const boxDraft = useBoxDraft();
@@ -258,7 +258,7 @@ export function HomeComposer() {
   }, []);
 
   const length = charCount(text);
-  const tooLong = length > POST_LIMIT;
+  const tooLong = length > limit;
   const video = files.some((f) => f.kind === "video");
   const blank = text.trim() === "" && files.length === 0 && gif === null;
   const pollBlank = poll !== null && poll.options.some((o) => o.trim() === "");
@@ -649,7 +649,9 @@ export function HomeComposer() {
             <ListPlus className="size-[18px]" />
           </Tool>
           <span className="ml-auto font-mono text-xs text-muted-foreground tabular-nums">
-            {[hint, text === "" ? null : `${length}/${POST_LIMIT}`].filter(Boolean).join(" · ")}
+            {[hint, text === "" ? null : `${length}/${limit.toLocaleString("en")}`]
+              .filter(Boolean)
+              .join(" · ")}
           </span>
           <button
             type="button"

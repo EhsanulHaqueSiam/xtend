@@ -14,7 +14,7 @@ import { Avatar, Verified, XPostView } from "../components/xnative/XPostView";
 import { at, engineAtom, postOn, type Surface } from "../state/engine";
 import { xGo, xNavigate } from "../state/x";
 
-// X shows Verified only to Premium accounts; All and Mentions are everyone's.
+// X's tabs. X has no Verified tab, even for Premium+: /notifications/verified opens All.
 const TABS = [
   { id: "all", label: "All", path: "/notifications", surface: "notifications" },
   {

@@ -5,6 +5,7 @@ import {
   type MediaKind,
   type PickedGif,
   type PostCommunity,
+  type PostEdit,
   type ReplyTone,
 } from "@xtend/contracts";
 import * as Effect from "effect/Effect";
@@ -50,6 +51,14 @@ export const postNowAtom = clientRuntime.fn<string>()(
   Effect.fnUntraced(function* (id) {
     const client = yield* XtendClient;
     return yield* client[Compose_METHODS.postNow]({ id });
+  }),
+);
+
+/** X's Edit post on the user's own post, through their session, for their click on Update. */
+export const editPostAtom = clientRuntime.fn<PostEdit>()(
+  Effect.fnUntraced(function* (edit) {
+    const client = yield* XtendClient;
+    return yield* client[Compose_METHODS.editPost](edit);
   }),
 );
 

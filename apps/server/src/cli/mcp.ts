@@ -21,6 +21,7 @@ import { RATE_CARD } from "../x/XClient.ts";
  */
 const text = { type: "string" } as const;
 
+// No tool edits a post: X's Edit post goes only through the session, which never acts for an agent.
 export const MCP_TOOLS = [
   {
     name: "draft_post",
