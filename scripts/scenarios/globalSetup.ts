@@ -21,6 +21,11 @@ export function buildWeb() {
 
 export default function setup() {
   const release = lockAppDir(APP_DIR);
-  buildWeb();
+  try {
+    buildWeb();
+  } catch (error) {
+    release();
+    throw error;
+  }
   return release;
 }

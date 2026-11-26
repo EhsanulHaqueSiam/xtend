@@ -74,9 +74,10 @@ export function syncReferenceRepo(root: string, repo: ReferenceRepo) {
   const link = NodePath.join(root, ".repos", repo.id);
   NodeFS.mkdirSync(NodePath.dirname(link), { recursive: true });
   if (readLink(link) !== cached) {
-    // rm takes the link itself, never the clone it points at.
-    NodeFS.rmSync(link, { force: true, recursive: true });
-    NodeFS.symlinkSync(cached, link, "dir");
+    // Made beside it and renamed over it: a sync running at the same time never finds it missing.
+    const next = `${link}.${process.pid}`;
+    NodeFS.symlinkSync(cached, next, "dir");
+    NodeFS.renameSync(next, link);
   }
   return { link, cached, version };
 }

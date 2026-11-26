@@ -17,13 +17,15 @@ npx -y @devcontainers/cli@latest exec --workspace-folder . bash -l
   both are forwarded. Open the web port; it proxies `/ws` and `/api` to the service.
 - `pnpm check:changed`, `vp test run <files>`, browser tests (`*.browser.test.tsx`) and the
   e2e journeys, which run in the installed Chromium.
-- The Electron suites headless, as CI runs them, after `pnpm build`:
-  `xvfb-run -a pnpm --filter @xtend/desktop smoke-test` and `xvfb-run -a pnpm test:engine`.
+- The Electron suites, as CI runs them: `xvfb-run -a pnpm test:engine` (it builds what it
+  needs) and, after `pnpm build`, `xvfb-run -a pnpm --filter @xtend/desktop smoke-test`.
 
 ## State
 
-`XTEND_HOME` points at the workspace's gitignored `.xtend`, the same home `pnpm dev` uses, so
-the CLI and a bare service run never write anywhere else. Nothing from the host's home is
+`XTEND_HOME` points at the workspace's `.xtend`, the same home `pnpm dev` uses, so the CLI and a
+bare service run never write anywhere else. It is a volume of the container's own: the host
+checkout's `.xtend` stays the host's, so a host `pnpm dev` and a container one never share a
+database or a scheduler. Nothing from the host's home is
 mounted: no `~/.xtend`, no `~/.xtend-dev`, no Electron profile. Keep it that way; a mounted
 live home would run a second scheduler on the user's database.
 

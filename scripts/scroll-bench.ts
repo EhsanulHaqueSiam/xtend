@@ -15,6 +15,9 @@ import * as NodeUtil from "node:util";
 import buildDesktop from "./scenarios/engine/globalSetup.ts";
 import { startEngine } from "./scenarios/engine/harness.ts";
 
+// Frames and stalls as a user sees them: the bench's desktop is shown, unlike the engine suite's.
+process.env.XTEND_HEADED ??= "1";
+
 const { values } = NodeUtil.parseArgs({
   options: {
     runs: { type: "string", default: "3" },

@@ -20,8 +20,8 @@ Xtend dev container
 
   pnpm dev                    service + web on 4820 / 5820, demo data in .xtend
   pnpm check:changed          checks for what you changed
-  pnpm build && xvfb-run -a pnpm test:engine
-                              Electron engine suite on mock X
+  xvfb-run -a pnpm test:engine
+                              Electron engine suite on mock X (builds what it needs)
 
 No X session lives here: dev desktops and the engine bench stay on the host.
 Details: docs/operations/01_devcontainer.md

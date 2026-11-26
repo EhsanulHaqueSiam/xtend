@@ -1,20 +1,42 @@
-// Proves a fix with one scenario: it must fail against the base's app and pass against this
-// checkout's. The scenario, mock X and fake treg always come from this checkout; only the app under
-// test (service, web build, desktop) changes, through XTEND_SCENARIO_APP_DIR. The base is a
-// detached worktree next to this one at the merge base, installed from the shared pnpm store.
+// Proves a fix with one scenario: its behavior check must fail against the base's app and pass
+// against this checkout's. The scenario, mock X and fake treg always come from this checkout; only
+// the app under test (service, web build, desktop) changes, through XTEND_SCENARIO_APP_DIR. The base
+// is a detached worktree of its own next to this one, at the merge base, removed afterwards.
 
 //   pnpm prove scripts/scenarios/<name>.e2e.ts [--base origin/main] [-t "<test name>"] [--keep]
-//   exit 0 proved, 1 not proved (passed on base, or failed here), 2 the base could not be set up
+//   exit 0 proved, 1 not proved (passed on base, or failed here), 2 could not run on one side
 import * as NodeChildProcess from "node:child_process";
 import * as NodeFS from "node:fs";
+import * as NodeOS from "node:os";
 import * as NodePath from "node:path";
 import * as NodeUtil from "node:util";
 
-export type Outcome = "proved" | "passes on base" | "fails here" | "fails on both";
+/** The parts of vitest's JSON report a verdict reads. */
+export interface RunReport {
+  readonly numTotalTests: number;
+  readonly numFailedTests: number;
+  readonly numPassedTests: number;
+  readonly testResults: ReadonlyArray<{ readonly message: string }>;
+}
 
-/** What two runs of one scenario say about a fix. */
-export const verdict = (base: boolean, head: boolean): Outcome =>
-  base ? (head ? "passes on base" : "fails here") : head ? "proved" : "fails on both";
+/**
+ * A run "failed" only when a test ran and its assertion failed. A file-level error (a hook, so the
+ * app never started) or no report at all (setup or the build broke) is "broken": it proves nothing.
+ */
+export const resultOf = (report: RunReport | undefined) =>
+  report === undefined ||
+  report.numTotalTests === 0 ||
+  report.testResults.some((file) => file.message !== "")
+    ? "broken"
+    : report.numFailedTests > 0
+      ? "failed"
+      : report.numPassedTests > 0
+        ? "passed"
+        : "broken";
+
+/** Exit 0 only for a check that failed on the base and passes here. */
+export const exitCodeOf = (base: ReturnType<typeof resultOf>, here: ReturnType<typeof resultOf>) =>
+  base === "broken" || here === "broken" ? 2 : base === "failed" && here === "passed" ? 0 : 1;
 
 /** The vitest project a scenario file runs in, or undefined when it is no scenario. */
 export const projectOf = (file: string) =>
@@ -44,70 +66,82 @@ if (import.meta.main) {
   });
   const file = NodePath.relative(root, NodePath.resolve(positionals[0] ?? ""));
   const project = projectOf(file);
-  if (project === undefined || !NodeFS.existsSync(NodePath.join(root, file))) {
-    console.error(
-      "usage: pnpm prove scripts/scenarios/<name>.{e2e,engine}.ts [--base <ref>] [-t <name>]",
-    );
+  const fail = (message: string): never => {
+    console.error(`[prove] ${message}`);
     process.exit(2);
-  }
+  };
+  if (project === undefined || !NodeFS.existsSync(NodePath.join(root, file)))
+    fail("usage: pnpm prove scripts/scenarios/<name>.{e2e,engine}.ts [--base <ref>] [-t <name>]");
 
   const base = git("merge-base", "HEAD", values.base);
-  // Next to this checkout, never in /tmp; one per base commit, so a rerun reuses its install.
+  // A desktop from before mock X would ignore XTEND_MOCK_X and open the real x.com.
+  if (
+    project === "engine" &&
+    NodeChildProcess.spawnSync(
+      "git",
+      ["cat-file", "-e", `${base}:apps/desktop/src/window/mockX.ts`],
+      {
+        cwd: root,
+      },
+    ).status !== 0
+  )
+    fail(`the base ${base.slice(0, 10)} predates mock X: its desktop would open the real x.com`);
+
+  // Its own worktree per run, next to this checkout and never in /tmp: concurrent proofs never
+  // share or remove each other's.
   const dir = NodePath.join(
     NodePath.dirname(root),
-    `${NodePath.basename(root)}-prove-${base.slice(0, 10)}`,
+    `${NodePath.basename(root)}-prove-${base.slice(0, 10)}-${process.pid}`,
   );
-  const ready =
-    NodeFS.existsSync(dir) &&
-    NodeChildProcess.spawnSync("git", ["rev-parse", "HEAD"], {
-      cwd: dir,
-      encoding: "utf8",
-    }).stdout.trim() === base;
-  if (!ready) {
-    NodeFS.rmSync(dir, { recursive: true, force: true });
-    git("worktree", "prune");
-    git("worktree", "add", "--detach", dir, base);
-  }
+  if (NodeFS.existsSync(dir)) fail(`${dir} already exists; remove it first`);
+  git("worktree", "add", "--detach", dir, base);
+  const cleanup = () => {
+    if (!values.keep) git("worktree", "remove", "--force", dir);
+  };
+  process.on("SIGINT", () => {
+    cleanup();
+    process.exit(130);
+  });
   const installed =
-    ready ||
-    (run("pnpm", ["install", "--frozen-lockfile", "--prefer-offline"], { cwd: dir }) &&
-      // The Electron binary is not in the store; its install script fetches it (from its cache).
-      (project !== "engine" ||
-        run("pnpm", ["--filter", "@xtend/desktop", "ensure:electron"], { cwd: dir })));
+    run("pnpm", ["install", "--frozen-lockfile", "--prefer-offline"], { cwd: dir }) &&
+    // The Electron binary is not in the store; its install script fetches it (from its cache).
+    (project !== "engine" ||
+      run("pnpm", ["--filter", "@xtend/desktop", "ensure:electron"], { cwd: dir }));
   if (!installed) {
-    console.error(`[prove] could not install the base worktree at ${dir}`);
-    process.exit(2);
+    cleanup();
+    fail(`could not install the base worktree at ${dir}`);
   }
 
-  const scenario = (appDir: string) =>
+  const reportFile = NodePath.join(NodeOS.tmpdir(), `xtend-prove-${process.pid}.json`);
+  const scenario = (appDir: string) => {
+    NodeFS.rmSync(reportFile, { force: true });
     run(
       "pnpm",
-      [
-        "exec",
-        "vp",
-        "test",
-        "run",
-        "--project",
-        project,
-        NodePath.relative("scripts", file),
-      ].concat(values.t === undefined ? [] : ["-t", values.t]),
+      ["exec", "vp", "test", "run", "--project", project!, NodePath.relative("scripts", file)]
+        .concat(values.t === undefined ? [] : ["-t", values.t])
+        .concat(["--reporter=default", "--reporter=json", `--outputFile.json=${reportFile}`]),
       {
         cwd: NodePath.join(root, "scripts"),
         env: { ...process.env, XTEND_SCENARIO_APP_DIR: appDir },
       },
     );
+    const report = NodeFS.existsSync(reportFile)
+      ? (JSON.parse(NodeFS.readFileSync(reportFile, "utf8")) as RunReport)
+      : undefined;
+    NodeFS.rmSync(reportFile, { force: true });
+    return resultOf(report);
+  };
   console.log(`\n[prove] ${file} against the base's app (${base.slice(0, 10)}, ${values.base})`);
   const onBase = scenario(dir);
   console.log(`\n[prove] ${file} against this checkout's app`);
   const here = scenario(root);
-  const outcome = verdict(onBase, here);
+  cleanup();
 
-  if (!values.keep) {
-    git("worktree", "remove", "--force", dir);
-  }
+  const code = exitCodeOf(onBase, here);
   console.log(
-    `\n[prove] base ${onBase ? "passed" : "failed"}, here ${here ? "passed" : "failed"}: ${outcome}` +
+    `\n[prove] base ${onBase}, here ${here}: ` +
+      ["proved", "not proved", "could not run (a broken run proves nothing)"][code] +
       (values.keep ? ` (base worktree kept at ${dir})` : ""),
   );
-  process.exit(outcome === "proved" ? 0 : 1);
+  process.exit(code);
 }

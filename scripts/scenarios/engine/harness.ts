@@ -44,10 +44,14 @@ export const startEngine = (mockOptions?: Parameters<typeof startMockX>[0]) =>
       timeout: 30_000,
     });
     // Playwright stops Electron by the process it started, never by name.
-    // Main's own fresh profile for mock X; Playwright stops Electron before main can remove it.
-    const profile = await electron.evaluate(({ app }) => app.getPath("userData"));
-    undo.push(() => NodeFSP.rm(profile, { recursive: true, force: true }));
     undo.push(() => electron.close());
+    // Main's own fresh profile for mock X; Playwright stops Electron before main can remove it.
+    // Anything else is an app that ignored XTEND_MOCK_X: its profile may hold a real X login, so
+    // it is never removed, and the app is stopped before a test can act on the real x.com.
+    const profile = await electron.evaluate(({ app }) => app.getPath("userData"));
+    if (!NodePath.basename(profile).startsWith("xtend-mock-x-"))
+      throw new Error(`${DESKTOP} did not take a mock X profile (${profile}); it would load x.com`);
+    undo.push(() => NodeFSP.rm(profile, { recursive: true, force: true }));
     const app: Page = await electron.firstWindow();
     app.setDefaultTimeout(10_000);
     await app.waitForURL((u) => u.origin === service.url);

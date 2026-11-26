@@ -85,9 +85,11 @@ login.
   from how X does it (Mobbin, the engine bench's recordings), never invented.
 - `pnpm prove scripts/scenarios/<file> [--base origin/main] [-t "<name>"]` is the real-app proof
   for a bug a user can reproduce. It runs the scenario against the base's app (a detached worktree
-  beside this one, at the merge base) and then against this checkout's, and exits `0` only when it
-  fails on the base and passes here (`1` not proved, `2` the base could not be set up). The
-  scenario, mock X and fake treg always come from this checkout; `XTEND_SCENARIO_APP_DIR` picks
-  the app.
+  of its own beside this one, at the merge base, removed afterwards) and then against this
+  checkout's. It exits `0` only when an assertion failed on the base and everything passed here,
+  `1` when not, and `2` when either side could not run: a build, setup or `beforeAll` error
+  proves nothing. The scenario, mock X and fake treg always come from this checkout;
+  `XTEND_SCENARIO_APP_DIR` picks the app. An engine base must already have mock X, and a base from
+  before the hidden desktop shows its window.
 - Scenarios cannot prove how x.com itself behaves (the engine bench does, live), visuals (captures
   do), or timing and performance (`pnpm bench`, `pnpm bench:scroll`).

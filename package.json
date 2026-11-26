@@ -35,7 +35,7 @@
     "mock-x": "node scripts/mock-x.ts",
     "fmt": "vp fmt",
     "fmt:check": "vp fmt --check",
-    "clean": "rm -rf node_modules apps/*/node_modules packages/*/node_modules apps/*/dist apps/*/dist-electron packages/*/dist .vite-plus apps/*/.vite-plus packages/*/.vite-plus",
+    "clean": "rm -rf node_modules apps/*/node_modules packages/*/node_modules infra/*/node_modules scripts/node_modules evals/node_modules oxlint-plugin-xtend/node_modules apps/*/dist apps/*/dist-electron packages/*/dist .vite-plus apps/*/.vite-plus packages/*/.vite-plus",
     "capture": "node scripts/capture.ts",
     "bench:scroll": "node scripts/scroll-bench.ts",
     "report:renders": "node scripts/render-metrics.ts run",

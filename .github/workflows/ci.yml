@@ -19,8 +19,8 @@ concurrency:
 # Runners are pinned: ubuntu-latest moved to 26.04 before Playwright supported it, and every
 # run failed at the browser install.
 jobs:
-  # Skips the jobs a change cannot affect: docs alone run only `check`, root scripts alone skip
-  # `build`. .github/scripts/ci-changes.cjs maps the changed paths to jobs. A pull request is
+  # Skips the jobs a change cannot affect: docs alone run only `check`.
+  # .github/scripts/ci-changes.cjs maps the changed paths to jobs. A pull request is
   # diffed against its base, a push to main against the commit before it. Detection fails open:
   # when the base cannot be read (a force push), everything runs.
   changes:

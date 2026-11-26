@@ -115,6 +115,17 @@ const verdict = (count: { passes: number; total: number } | undefined) =>
     ? "-"
     : `${count.passes > count.total / 2 ? "pass" : "FAIL"} ${count.passes}/${count.total}`;
 
+// Read before the run writes anything: --baseline may be the results.ndjson this run replaces.
+const before = values.baseline
+  ? tally(
+      decodeRows(
+        NodeFS.readFileSync(values.baseline, "utf8")
+          .split("\n")
+          .filter((line) => line !== ""),
+      ),
+    )
+  : undefined;
+
 const rows = await Effect.runPromise(
   Effect.gen(function* () {
     const settings = yield* SettingsStore.SettingsStore;
@@ -139,15 +150,6 @@ NodeFS.writeFileSync(
   rows.map((row) => encodeRow(row)).join("\n") + "\n",
 );
 const now = tally(rows);
-const before = values.baseline
-  ? tally(
-      decodeRows(
-        NodeFS.readFileSync(values.baseline, "utf8")
-          .split("\n")
-          .filter((line) => line !== ""),
-      ),
-    )
-  : undefined;
 const lines = [
   `${provider} ${values.model || "(CLI default model)"}, prompt ${promptHash}, ${instructions.split(/\s+/).length} words`,
   "",
