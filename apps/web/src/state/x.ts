@@ -1024,13 +1024,13 @@ const openMenu = (at: MenuAt, mine = "true", press = false) => `
     clickedCarets.add(trigger);
     // A later click, including the user reopening this caret, is a different opening.
     trigger.addEventListener("click", () => clickedCarets.delete(trigger), { once: true });
-    let opened = ${mine} ? menuFor(trigger) : null;
+    let opened = ${mine} ? menuFor(trigger, true) : null;
     const closeMenu = () => closeOwnedMenu(trigger, opened);
     let items = [];
     for (let i = 0; i < 20 && items.length === 0; i++) {
       await new Promise((r) => setTimeout(r, 100));
       if (!(${mine}) || ${press && at.trend ? "(!opened && request !== window.__xtendMenuRequest)" : "false"}) return (closeMenu(), null);
-      opened ??= menuFor(trigger);
+      opened ??= menuFor(trigger, true);
       if (opened && menuFor(trigger) !== opened) return null;
       items = [...(opened?.querySelectorAll('[role="menuitem"]') ?? [])];
     }
@@ -1067,10 +1067,16 @@ const xMenuRun = (step: string, start = "") =>
     if (previousStep) await previousStep;
     try {
       const clickedCarets = window.__xtendMenuCarets ??= new WeakSet();
-      // X's reply sort trigger carries no aria-expanded: open is then X's one open menu.
-      const expanded = (caret) => caret?.isConnected && (caret.hasAttribute("aria-expanded") ? caret.getAttribute("aria-expanded") === "true" : document.querySelectorAll('[role="menu"]').length === 1);
-      const menuFor = (caret) => {
+      // X's reply sort trigger carries no aria-expanded: its menu is the lone one our click opened.
+      const statelessMenus = window.__xtendStatelessMenus ??= new WeakMap();
+      const expanded = (caret) => caret?.isConnected && (caret.hasAttribute("aria-expanded") ? caret.getAttribute("aria-expanded") === "true" : !!statelessMenus.get(caret)?.isConnected);
+      const menuFor = (caret, claim = false) => {
+        if (claim && clickedCarets.has(caret) && !caret.hasAttribute("aria-expanded") && !expanded(caret)) {
+          const menus = document.querySelectorAll('[role="menu"]');
+          if (menus.length === 1) statelessMenus.set(caret, menus[0]);
+        }
         if (!clickedCarets.has(caret) || !expanded(caret)) return null;
+        if (!caret.hasAttribute("aria-expanded")) return statelessMenus.get(caret);
         const controlled = caret.getAttribute("aria-controls")?.split(" ").map((id) => document.getElementById(id)?.closest('[role="menu"]')).find(Boolean);
         if (controlled) return controlled;
         const menus = document.querySelectorAll('[role="menu"]');
@@ -2153,8 +2159,6 @@ export const xSortReplies = (
     const item = items.find((i) => i.textContent.trim() === ${JSON.stringify(pick.label)});
     if (!item || menuFor(trigger) !== opened) return (closeMenu(), false);
     item.click();
-    // Without aria-expanded, a trigger still marked ours would claim the next lone menu.
-    clickedCarets.delete(trigger);
     // X puts the order in its URL a moment later; the route's own move waits for it, or it races X.
     const took = () => new URLSearchParams(location.search).get("sort_replies") === ${JSON.stringify(pick.param)};
     for (let i = 0; i < 20 && !took(); i++) await new Promise((r) => setTimeout(r, 100));

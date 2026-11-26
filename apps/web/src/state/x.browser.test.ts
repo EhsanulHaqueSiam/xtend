@@ -392,12 +392,47 @@ it("sorts replies through X's own row under the post, and only reports a sort X 
   try {
     expect(await xSortReplies(post42, { label: "Recent", param: "recency" }, labels)).toBe(true);
     expect(location.search).toBe("?sort_replies=recency");
-    // A menu someone else opened afterwards is not taken for the sort's own.
-    const foreign = drawMenu(document.createElement("button"), { Mute: () => {} });
     expect(await xSortReplies(post42, { label: "Likes", param: "likes" }, labels)).toBe(false);
+  } finally {
+    history.replaceState(null, "", start);
+  }
+});
+
+it("takes for X's sort trigger only the menu its own click opened, never one opened after", async () => {
+  using _clock = fakeTimers();
+  const start = location.pathname + location.search;
+  withMenu(
+    { Recent: () => history.replaceState(null, "", `${location.pathname}?sort_replies=recency`) },
+    'button[aria-haspopup="menu"]',
+    `<div><button aria-haspopup="menu">Relevant</button></div>`,
+    true,
+  );
+  const labels = ["Relevant", "Recent", "Likes"];
+  // Any later menu step sweeps what it believes is still ours; "Nope" finds no sort to open.
+  const sweepLeaves = async () => {
+    const foreign = drawMenu(document.createElement("button"), { Mute: () => {} });
+    const step = xSortReplies(post42, { label: "Recent", param: "recency" }, ["Nope"]);
+    await vi.runAllTimersAsync();
+    expect(await step).toBe(false);
     expect(foreign.isConnected).toBe(true);
     foreign.remove();
-    expect(await xSortReplies(post42, { label: "Likes", param: "likes" }, labels)).toBe(false);
+  };
+  try {
+    const sorted = xSortReplies(post42, { label: "Recent", param: "recency" }, labels);
+    await vi.runAllTimersAsync();
+    expect(await sorted).toBe(true);
+    await sweepLeaves();
+    // X's press opens nothing this time.
+    document
+      .querySelector('button[aria-haspopup="menu"]')!
+      .addEventListener("click", (e) => e.stopImmediatePropagation(), {
+        capture: true,
+        once: true,
+      });
+    const missed = xSortReplies(post42, { label: "Recent", param: "recency" }, labels);
+    await vi.runAllTimersAsync();
+    expect(await missed).toBe(false);
+    await sweepLeaves();
   } finally {
     history.replaceState(null, "", start);
   }
