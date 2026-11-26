@@ -20,14 +20,20 @@ skip them.
 ## Worker
 
 The worker is deployed with alchemy (`infra/pool/alchemy.run.ts`), as T3 Code deploys its own.
-Alchemy only reads the Hyperdrive config by id; it never creates, changes or deletes it. State is
-local (`infra/pool/.alchemy/`, gitignored), so nothing but the worker exists in the account.
+Alchemy only reads the Hyperdrive config by id; it never creates, changes or deletes it.
 Credentials: `alchemy profile` login, or `CLOUDFLARE_ACCOUNT_ID` with `CLOUDFLARE_API_TOKEN`.
 
+Plan and deploy keep alchemy's state in the account (`Cloudflare.state()`), so it outlives the
+worktree that ran them. The first plan creates that store: an `alchemy-state-store` worker and
+its secrets in a Secrets Store. `dev` keeps its state in `infra/pool/.alchemy/` (gitignored) and
+creates nothing in the account.
+
 ```sh
-pnpm --filter @xtend/pool plan          # what a deploy would change, applies nothing
-pnpm --filter @xtend/pool deploy        # logged in to the account that owns it
+pnpm --filter @xtend/pool run plan      # what a deploy would change, applies nothing
+pnpm --filter @xtend/pool run deploy    # logged in to the account that owns it
 ```
+
+`run` is needed: `pnpm deploy` without it is pnpm's own command, not the script.
 
 The first alchemy deploy takes over the worker wrangler made. Run it once with `--adopt`, plan
 first, and read the plan before deploying:
@@ -40,8 +46,10 @@ pnpm --filter @xtend/pool exec alchemy deploy --stage prod --adopt
 The PoolBuffer object keeps its data: alchemy matches the `BUFFER` binding to the live class by
 name, so the class must stay `PoolBuffer`. That deploy also adds alchemy's ownership tags and
 the `new_module_registry` compatibility flag, and ships alchemy's bundle of the same code. Never
-add a `destroy` script: it would delete the live worker and its buffered pushes. After a lost
-`.alchemy/` folder, the next deploy needs `--adopt` again.
+add a `destroy` script: it would delete the live worker and its buffered pushes.
+
+The pool pins effect 4.1.5, which alchemy needs; the rest of the workspace is on the catalog's
+4.0.5, so `.repos/effect` shows 4.0.5's API, not the pool's.
 
 | route                       | does                                                    |
 | --------------------------- | ------------------------------------------------------- |
