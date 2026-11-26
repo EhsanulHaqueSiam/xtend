@@ -392,6 +392,11 @@ it("sorts replies through X's own row under the post, and only reports a sort X 
   try {
     expect(await xSortReplies(post42, { label: "Recent", param: "recency" }, labels)).toBe(true);
     expect(location.search).toBe("?sort_replies=recency");
+    // A menu someone else opened afterwards is not taken for the sort's own.
+    const foreign = drawMenu(document.createElement("button"), { Mute: () => {} });
+    expect(await xSortReplies(post42, { label: "Likes", param: "likes" }, labels)).toBe(false);
+    expect(foreign.isConnected).toBe(true);
+    foreign.remove();
     expect(await xSortReplies(post42, { label: "Likes", param: "likes" }, labels)).toBe(false);
   } finally {
     history.replaceState(null, "", start);

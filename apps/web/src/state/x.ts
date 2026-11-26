@@ -2153,6 +2153,8 @@ export const xSortReplies = (
     const item = items.find((i) => i.textContent.trim() === ${JSON.stringify(pick.label)});
     if (!item || menuFor(trigger) !== opened) return (closeMenu(), false);
     item.click();
+    // Without aria-expanded, a trigger still marked ours would claim the next lone menu.
+    clickedCarets.delete(trigger);
     // X puts the order in its URL a moment later; the route's own move waits for it, or it races X.
     const took = () => new URLSearchParams(location.search).get("sort_replies") === ${JSON.stringify(pick.param)};
     for (let i = 0; i < 20 && !took(); i++) await new Promise((r) => setTimeout(r, 100));
