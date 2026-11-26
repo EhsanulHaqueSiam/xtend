@@ -1,7 +1,9 @@
-import type { EngineBatch } from "@xtend/contracts";
+import type { EngineBatch, EngineBroadcastRow } from "@xtend/contracts";
 import { expect, it } from "vite-plus/test";
 import { page, userEvent } from "vite-plus/test/browser";
 
+// The app's layout, so the list has a height to draw its rows in.
+import "~/index.css";
 import { installFakeBridge } from "../../../test/fakeBridge";
 import { render } from "../../../test/render";
 import { emptyEngine, updateEngine } from "../../state/engine";
@@ -13,10 +15,21 @@ import { XLiveSection } from "./XLive";
 const batches = synth().accountAnalytics!.batches;
 const list = batches.find((b) => b.op === "liveOverviewProviderQuery")!;
 const details = batches.find((b) => b.op === "liveDetailsQuery")!;
+const [stats] = batches.flatMap((b) =>
+  b.liveAnalytics?.kind === "broadcast" ? [b.liveAnalytics.broadcast] : [],
+);
 const { liveAnalytics: _, ...base } = list;
 const noClaims: EngineBatch = { ...base, op: "GetUserClaims", key: null, claims: [] };
+/** A page of X's list: X's first (its list now) or a later one, and X's cursor for the next. */
+const listPage = (
+  broadcasts: ReadonlyArray<EngineBroadcastRow>,
+  first: boolean,
+  next: string | null,
+): EngineBatch => ({ ...base, liveAnalytics: { kind: "list", broadcasts, first, next } });
+const fixtureRows = list.liveAnalytics?.kind === "list" ? list.liveAnalytics.broadcasts : [];
 
-it("lists the user's broadcasts newest first in X's words, X's filters narrow them, and one opens X's numbers", async () => {
+/** The section on a fresh store, the engine a fake webview whose scripts the test reads. */
+async function open() {
   updateEngine(() => emptyEngine);
   const bridge = installFakeBridge();
   const scripts: Array<string> = [];
@@ -26,24 +39,41 @@ it("lists the user's broadcasts newest first in X's words, X's filters narrow th
     executeJavaScript: (code: string) => (scripts.push(code), Promise.resolve(null)),
   } as unknown as XWebview);
   markXReady();
-  await using screen = await render(
+  const container = document.createElement("div");
+  container.style.height = "800px";
+  const screen = await render(
     <>
       <EngineSync />
       <XLiveSection />
     </>,
-    { service: {} },
+    { service: {}, container },
   );
-  await expect.poll(() => scripts.some((s) => s.includes("/i/account_analytics/live"))).toBe(true);
-  // X's claims leave the account out, until X answers with its broadcasts.
-  bridge.emitEngine(noClaims);
-  await expect.element(screen.getByText("Advanced analytics with Plus")).toBeVisible();
-  bridge.emitEngine(list);
   const rows = () =>
     [...screen.container.querySelectorAll('[data-x="broadcast-row"]')].map((r) =>
       [...r.querySelectorAll("td")].map((td, i) =>
         i === 0 ? td.querySelector(".font-medium")?.textContent : td.textContent,
       ),
     );
+  return {
+    bridge,
+    scripts,
+    screen,
+    rows,
+    async [Symbol.asyncDispose]() {
+      await screen[Symbol.asyncDispose]();
+      registerXWebview(null);
+    },
+  };
+}
+
+it("lists the user's broadcasts newest first in X's words, X's filters narrow them, and one opens X's numbers", async () => {
+  await using x = await open();
+  const { bridge, scripts, screen, rows } = x;
+  await expect.poll(() => scripts.some((s) => s.includes("/i/account_analytics/live"))).toBe(true);
+  // X's claims leave the account out, until X answers with its broadcasts.
+  bridge.emitEngine(noClaims);
+  await expect.element(screen.getByText("Advanced analytics with Plus")).toBeVisible();
+  bridge.emitEngine(list);
   // X's order: when it is scheduled, else when it started.
   await expect.poll(() => rows().length).toBe(3);
   expect(rows()).toEqual([
@@ -79,4 +109,55 @@ it("lists the user's broadcasts newest first in X's words, X's filters narrow th
   ]);
   // X's Live Viewers by the minute, with its peak.
   await expect.element(screen.getByText("Peak Viewers: 120")).toBeVisible();
+});
+
+it("pages through X's own list: its end scrolls X's list for more, and X's next page joins the first", async () => {
+  await using x = await open();
+  x.bridge.emitEngine(listPage(fixtureRows, true, "MTc5NTUwMDAwMDAwMA"));
+  await expect.poll(() => x.rows().length).toBe(3);
+  // The list fills no screen: its end asks X's own list for its next page.
+  await expect.poll(() => x.scripts.some((s) => s.includes('"main tbody tr"'))).toBe(true);
+  x.bridge.emitEngine(
+    listPage(
+      [{ ...fixtureRows[1]!, broadcastId: "900000800009", title: "Live now", state: "Running" }],
+      false,
+      null,
+    ),
+  );
+  await expect.poll(() => x.rows().length).toBe(4);
+  await userEvent.click(x.screen.getByRole("button", { name: "Filter: All" }));
+  await userEvent.click(page.getByRole("menuitem", { name: "Live" }));
+  await expect.poll(() => x.rows().map((r) => r[0])).toEqual(["Live now"]);
+});
+
+it("keeps a long broadcast's peak and both ends on its viewers chart, and says when X has no such broadcast", async () => {
+  await using x = await open();
+  x.bridge.emitEngine(list);
+  await x.screen.getByRole("button", { name: /^Building Xtend live/ }).click();
+  // 241 minutes, 12 viewers but 500 at minute 239: a stride over the minutes would draw 12 flat.
+  x.bridge.emitEngine({
+    ...details,
+    liveAnalytics: {
+      kind: "broadcast",
+      broadcast: {
+        ...stats!,
+        concurrent: Array.from({ length: 241 }, (_, i) => (i === 239 ? 500 : 12)),
+      },
+    },
+  });
+  await expect.element(x.screen.getByText("Peak Viewers: 500")).toBeVisible();
+  expect(
+    [...x.screen.container.querySelectorAll('[aria-live="polite"] span')].map((s) => s.textContent),
+  ).toEqual(["0:00", "12 to 500", "4:00:00"]);
+
+  await x.screen.getByRole("button", { name: "Back to broadcasts" }).click();
+  await x.screen.getByRole("button", { name: /^Office hours/ }).click();
+  x.bridge.emitEngine({
+    ...details,
+    key: "900000800002",
+    liveAnalytics: { kind: "unavailable", broadcastId: "900000800002" },
+  });
+  await expect
+    .element(x.screen.getByText("X has no analytics for this broadcast. It may have been deleted."))
+    .toBeVisible();
 });

@@ -191,12 +191,18 @@ export async function startMockX(
           const paged = r.paged === undefined ? undefined : r.requests[r.paged];
           if (paged === undefined)
             return json({ graphql: [], html: "", next: null, title: r.title });
-          const next = { ...paged, variables: { ...paged.variables, cursor } };
+          const next = {
+            ...paged,
+            variables: {
+              ...paged.variables,
+              cursor: r.cursor === undefined ? cursor : r.cursor(cursor),
+            },
+          };
           const batch = state.batchFor(next.op, next.variables);
           return json({
             graphql: [httpRequest(next)],
             html: r.more?.(batch) ?? postsOf(batch, state),
-            next: batch?.bottom ?? null,
+            next: r.next === undefined ? (batch?.bottom ?? null) : r.next(batch),
             title: r.title,
           });
         }
@@ -216,7 +222,12 @@ export async function startMockX(
             ...(r.rest ?? []).map((url) => ({ url })),
           ],
           html: r.render(batches),
-          next: r.paged === undefined ? null : (batches[r.paged]?.bottom ?? null),
+          next:
+            r.paged === undefined
+              ? null
+              : r.next === undefined
+                ? (batches[r.paged]?.bottom ?? null)
+                : r.next(batches[r.paged] ?? null),
           title: r.title,
           redirect: r.redirect ?? null,
         });

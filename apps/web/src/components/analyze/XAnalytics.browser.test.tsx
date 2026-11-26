@@ -267,6 +267,23 @@ it("breaks X's audience down by the engagement picked, rounded as X's page round
   await expect
     .element(x.screen.getByRole("heading", { name: "Following" }))
     .not.toBeInTheDocument();
+  // X takes the percent first, then floors its tenth: 29 of 100 is 28.9, and the tenth left goes to
+  // the largest.
+  await userEvent.click(x.screen.getByRole("button", { name: "Metric: New follows" }));
+  await userEvent.click(page.getByRole("menuitem", { name: "Likes" }));
+  const sent = answer("audience:7");
+  const fav = { type: "Fav", age: null, gender: null, app: null, country: null };
+  x.bridge.emitEngine({
+    ...sent,
+    accountAnalytics: {
+      ...sent.accountAnalytics!,
+      rows: [
+        { ...fav, count: 29, inNetwork: true },
+        { ...fav, count: 71, inNetwork: false },
+      ],
+    },
+  } as EngineBatch);
+  await expect.poll(() => shares("Following")).toEqual(["Followers28.9%", "Non-followers71.1%"]);
 });
 
 it("draws X's Active times as X's page scales them: each weekday-hour's average, an outlier capped", async () => {

@@ -1310,7 +1310,8 @@ export function encodeBody(
         : viewerV2({
             broadcasts: {
               broadcasts: a.broadcasts.map(encodeBroadcast),
-              cursor: { offset: "" },
+              // X's empty offset is its end.
+              cursor: { offset: a.next ?? "" },
             },
           });
     }

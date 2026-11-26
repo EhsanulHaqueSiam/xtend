@@ -1562,7 +1562,12 @@ export function synth(): Readonly<Record<string, Fixture>> {
         }),
       }),
       batch("liveOverviewProviderQuery", "live", [], {
-        liveAnalytics: { kind: "list", broadcasts: [ended, office, scheduled] },
+        liveAnalytics: {
+          kind: "list",
+          broadcasts: [ended, office, scheduled],
+          first: true,
+          next: null,
+        },
       }),
       batch("liveDetailsQuery", ENDED_BROADCAST, [], {
         liveAnalytics: {

@@ -1341,9 +1341,8 @@ function keyOf(op: string, variables: Json, exploreTabs: ReadonlyArray<EngineExp
   if (op === "AudioSpaceById" || op === "spacesDetailsProviderQuery") return s("id") ?? null;
   // X's list of the user's Spaces, its first page; X's next pages as its own list scrolls.
   if (op === "spacesOverviewProviderQuery") return s("cursor") === undefined ? "spaces" : null;
-  // X's broadcasts the same way; X's next pages ask with a `{ offset }` cursor.
-  if (op === "liveOverviewProviderQuery")
-    return variables.cursor === null || variables.cursor === undefined ? "live" : null;
+  // X's broadcasts: every page is the one list, its later pages joining the first.
+  if (op === "liveOverviewProviderQuery") return "live";
   if (op === "liveDetailsQuery") return s("broadcastId") ?? null;
   const accountAnalytics = accountAnalyticsKey(op, variables);
   if (accountAnalytics !== undefined) return accountAnalytics;
@@ -1548,8 +1547,8 @@ function readBroadcast(b: Json): EngineBroadcastRow | undefined {
 }
 
 /**
- * X's Live analytics (bundle.AccountAnalytics): the first page of the user's broadcasts, and one
- * broadcast's numbers.
+ * X's Live analytics (bundle.AccountAnalytics): a page of the user's broadcasts with X's cursor
+ * for the next, one broadcast's numbers, or one X answered with none.
  */
 function readLiveAnalytics(
   op: string,
@@ -1557,20 +1556,24 @@ function readLiveAnalytics(
   data: Json,
 ): Pick<EngineBatch, "liveAnalytics"> {
   if (op === "liveOverviewProviderQuery") {
-    const user = result(record(data.viewer_v2).user_results);
-    // An error alone carries no user; X's next pages would replace its first.
-    if (user.__typename !== "User" || (variables.cursor !== null && variables.cursor !== undefined))
-      return {};
+    const listed = record(result(record(data.viewer_v2).user_results).broadcasts);
+    // A partial answer or an error alone carries no list.
+    if (!Array.isArray(listed.broadcasts)) return {};
     return {
       liveAnalytics: {
         kind: "list",
-        broadcasts: arr(record(user.broadcasts).broadcasts).flatMap(
-          (b) => readBroadcast(record(b)) ?? [],
-        ),
+        broadcasts: listed.broadcasts.flatMap((b) => readBroadcast(record(b)) ?? []),
+        first: variables.cursor === null || variables.cursor === undefined,
+        // X's empty offset is its end.
+        next: asString(record(listed.cursor).offset) || null,
       },
     };
   }
   if (op !== "liveDetailsQuery") return {};
+  const asked = asString(variables.broadcastId);
+  // X answers a broadcast it no longer has (deleted) with null; an error carries no answer.
+  if (data.broadcast_by_rest_id === null && asked !== undefined && SPACE_ID.test(asked))
+    return { liveAnalytics: { kind: "unavailable", broadcastId: asked } };
   const b = record(data.broadcast_by_rest_id);
   const broadcast = readBroadcast(b);
   return broadcast === undefined

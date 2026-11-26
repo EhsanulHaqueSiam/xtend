@@ -359,12 +359,13 @@ const SCRIPT = String.raw`
     }
   }
 
-  /** X's next page once the user (or the engine) scrolls to the end of the list. */
-  function more() {
+  /** X's next page once the user (or the engine) scrolls to the end of the list, or of the box
+   * its rows scroll in (X's Live list). */
+  function more(box) {
     const entry = shown;
     if (loadingMore) return loadingMore;
     if (!entry || !entry.next) return Promise.resolve();
-    if (innerHeight + scrollY < document.documentElement.scrollHeight - 300) return Promise.resolve();
+    if (box ? box.scrollTop + box.clientHeight < box.scrollHeight - 100 : innerHeight + scrollY < document.documentElement.scrollHeight - 300) return Promise.resolve();
     loadingMore = (async () => {
       const view = await load(entry.path, entry.next);
       entry.el.querySelector("[data-list]")?.append(...fragment(view.html).childNodes);
@@ -373,6 +374,9 @@ const SCRIPT = String.raw`
     return loadingMore;
   }
   addEventListener("scroll", () => { drawTrends(); void more(); }, { passive: true });
+  addEventListener("scroll", (event) => {
+    if (event.target instanceof Element && event.target.matches("[data-own-scroll]")) void more(event.target);
+  }, { capture: true, passive: true });
   // X's list checks its end again as its cells resize: parked at its end, it fetches by itself. A
   // test resizes cells through this, once any page in flight has landed, and X then checks.
   window.__mockCellsResized = async (resize) => {

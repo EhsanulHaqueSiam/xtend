@@ -15,7 +15,7 @@ import { Empty, PageBody, Section, table } from "../ui/layout";
 import { OpenOnX } from "../ui/x-link";
 import { Avatar } from "../xnative/XPostView";
 import { XEmpty } from "../xnative/XRows";
-import { LineChart } from "./ui";
+import { LineChart, thinned } from "./ui";
 import { Paywall } from "./XAnalytics";
 
 const DATE = new Intl.DateTimeFormat("en", { month: "short", day: "numeric", year: "numeric" });
@@ -52,7 +52,7 @@ export function XSpacesSection() {
   // oxlint-disable-next-line xtend/no-unreasoned-state-sync -- moves the engine (the session view) to X's Space analytics page for what the section shows, and reads whether X shows it or its upsell.
   useEffect(() => {
     const mine = new AbortController();
-    loaded.current = xGo(url);
+    loaded.current = xGo(url, mine.signal);
     if (open === null)
       void xSpacesUpsell(loaded.current, mine.signal).then((upsell) => {
         if (upsell !== null) setEngine(updateEngine((s) => sawAnalyticsPage(s, upsell)));
@@ -167,10 +167,7 @@ const CHART_POINTS = 240;
 function SpaceStats({ stats }: { readonly stats: EngineSpaceStats }) {
   const navigate = useNavigate();
   const peak = stats.concurrent.length === 0 ? 0 : Math.max(...stats.concurrent);
-  const step = Math.max(1, Math.ceil(stats.concurrent.length / CHART_POINTS));
-  const points = stats.concurrent.flatMap((viewers, second) =>
-    second % step === 0 ? [{ label: clock(second), value: viewers }] : [],
-  );
+  const points = thinned(stats.concurrent, CHART_POINTS, clock);
   const tiles: ReadonlyArray<readonly [string, number | null]> = [
     ["Total Participants", stats.participants],
     ["Peak Concurrent Listeners", peak],

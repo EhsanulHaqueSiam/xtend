@@ -1809,7 +1809,7 @@ describe("renderEngineBatch around posts", () => {
     ]);
   });
 
-  it("reads X's Live analytics: the user's broadcasts in X's words, only X's first page, and one broadcast's numbers", () => {
+  it("reads X's Live analytics: each page of the user's broadcasts with X's cursor, one broadcast's numbers, and one X no longer has", () => {
     const broadcast = {
       broadcast_id: "1yNGaQLqqwdJj",
       state: "Ended",
@@ -1824,7 +1824,7 @@ describe("renderEngineBatch around posts", () => {
       counts: { total_counts: { views: "1284", unique_viewers: 402, minutes_watched: "3910" } },
       id: "QnJvYWRjYXN0OjF5TkdhUUxxcXdkSmo=",
     };
-    const page = (cursor: unknown) =>
+    const page = (cursor: unknown, broadcasts: unknown, offset = "MTc5NTUwMDAwMDAwMA") =>
       renderEngineBatch(
         "liveOverviewProviderQuery",
         { cursor, limit: 30 },
@@ -1832,23 +1832,7 @@ describe("renderEngineBatch around posts", () => {
           data: {
             viewer_v2: {
               user_results: {
-                result: {
-                  __typename: "User",
-                  broadcasts: {
-                    broadcasts: [
-                      broadcast,
-                      {
-                        broadcast_id: "1OwxWwnoleRGQ",
-                        state: "NotStarted",
-                        status: "",
-                        scheduled_start_time: 1795700000000,
-                        counts: null,
-                      },
-                      { broadcast_id: null, state: "Ended" },
-                    ],
-                    cursor: { offset: "MTc5NTUwMDAwMDAwMA" },
-                  },
-                },
+                result: { __typename: "User", broadcasts: { broadcasts, cursor: { offset } } },
               },
             },
           },
@@ -1866,11 +1850,23 @@ describe("renderEngineBatch around posts", () => {
       viewers: 402,
       minutesWatched: 3910,
     };
-    const first = page(null);
+    const first = page(null, [
+      broadcast,
+      {
+        broadcast_id: "1OwxWwnoleRGQ",
+        state: "NotStarted",
+        status: "",
+        scheduled_start_time: 1795700000000,
+        counts: null,
+      },
+      { broadcast_id: null, state: "Ended" },
+    ]);
     expect([first.key, first.liveAnalytics]).toEqual([
       "live",
       {
         kind: "list",
+        first: true,
+        next: "MTc5NTUwMDAwMDAwMA",
         broadcasts: [
           row,
           {
@@ -1888,9 +1884,23 @@ describe("renderEngineBatch around posts", () => {
         ],
       },
     ]);
-    // X's next page, as its own list scrolls, would replace the first.
-    const next = page({ offset: "MTc5NTUwMDAwMDAwMA" });
-    expect([next.key, next.liveAnalytics]).toEqual([null, undefined]);
+    // X's next page, as its own list scrolls, joins the first; an empty offset is X's end.
+    const next = page(
+      { offset: "MTc5NTUwMDAwMDAwMA" },
+      [{ ...broadcast, broadcast_id: "1RunningNowAb", state: "Running" }],
+      "",
+    );
+    expect([next.key, next.liveAnalytics]).toEqual([
+      "live",
+      {
+        kind: "list",
+        first: false,
+        next: null,
+        broadcasts: [{ ...row, broadcastId: "1RunningNowAb", state: "Running" }],
+      },
+    ]);
+    // A partial answer without X's list says nothing about it.
+    expect(page(null, null).liveAnalytics).toBeUndefined();
 
     const one = renderEngineBatch(
       "liveDetailsQuery",
@@ -1922,6 +1932,18 @@ describe("renderEngineBatch around posts", () => {
         broadcast: { ...row, concurrent: [0, 40, 120, 88] },
       },
     ]);
+    // A broadcast X no longer has (deleted): X answers with none.
+    const gone = renderEngineBatch(
+      "liveDetailsQuery",
+      { broadcastId: "1yNGaQLqqwdJj" },
+      { data: { broadcast_by_rest_id: null } },
+    );
+    expect(gone.liveAnalytics).toEqual({ kind: "unavailable", broadcastId: "1yNGaQLqqwdJj" });
+    // An error alone is no answer about it.
+    expect(
+      renderEngineBatch("liveDetailsQuery", { broadcastId: "1yNGaQLqqwdJj" }, { errors: [{}] })
+        .liveAnalytics,
+    ).toBeUndefined();
   });
 
   it("reads a search of Communities by its query: X's Communities, then its Top and Latest posts", () => {

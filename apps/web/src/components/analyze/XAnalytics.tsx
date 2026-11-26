@@ -9,7 +9,7 @@ import type {
 } from "@xtend/contracts";
 import { Check, ChevronDown, ChevronUp } from "lucide-react";
 import { Fragment, type ReactNode, useCallback, useEffect, useRef, useState } from "react";
-import { type TableComponents, TableVirtuoso } from "react-virtuoso";
+import { type TableProps, TableVirtuoso } from "react-virtuoso";
 
 import { isElectron } from "../../env";
 import { cn } from "../../lib/utils";
@@ -118,7 +118,8 @@ function useXAnalytics(section: XSection) {
   useEffect(() => {
     const mine = new AbortController();
     live.current = mine;
-    loaded.current = xGo(url);
+    // Leaving drops a load still queued for the guest, so X's page never loads off screen.
+    loaded.current = xGo(url, mine.signal);
     void xAnalyticsUpsell(page.path, loaded.current, mine.signal).then((upsell) => {
       if (upsell !== null) setEngine(updateEngine((s) => sawAnalyticsPage(s, upsell)));
     });
@@ -476,10 +477,10 @@ const COLUMNS = [
 type Sort = "date" | (typeof COLUMNS)[number][0];
 
 /** Virtuoso's table, as wide as the page like every other table. */
-const ContentTable: NonNullable<TableComponents<EngineAnalyticsPost>["Table"]> = ({
+export const PageTable = ({
   context: _,
   ...props
-}) => <table {...props} className={table.root} />;
+}: TableProps & { readonly context?: unknown }) => <table {...props} className={table.root} />;
 
 const ofType = (p: EngineAnalyticsPost, type: (typeof TYPES)[number][0]) =>
   type === "all" ||
@@ -539,7 +540,7 @@ function ContentSection() {
         <TableVirtuoso
           className="min-h-0 flex-1 [--row-inset:24px]"
           data={rows}
-          components={{ Table: ContentTable }}
+          components={{ Table: PageTable }}
           computeItemKey={(_, p) => p.postId}
           fixedHeaderContent={() => (
             <tr>
@@ -746,14 +747,14 @@ const regionName = (code: string) => {
 
 /**
  * Each slice's share in percent as X's page rounds it: down to a tenth, and what that leaves of
- * 100 to the largest.
+ * 100 to the largest. In X's order of operations, which floating point can tell apart.
  */
 function shares(counts: ReadonlyMap<string, number>): ReadonlyMap<string, number> {
   const total = [...counts.values()].reduce((a, b) => a + b, 0);
   if (total === 0) return new Map();
   const sorted = [...counts].toSorted((a, b) => b[1] - a[1]);
-  const floored = sorted.map(([k, n]) => [k, Math.floor((n / total) * 1000) / 10] as const);
-  const left = 100 - floored.reduce((a, [, v]) => a + v, 0);
+  const floored = sorted.map(([k, n]) => [k, Math.floor(10 * ((n / total) * 100)) / 10] as const);
+  const left = floored.reduce((u, [, v]) => u - v, 100);
   return new Map(
     floored.map(([k, v], i) => [k, i === 0 && left > 0 ? Number((v + left).toFixed(1)) : v]),
   );

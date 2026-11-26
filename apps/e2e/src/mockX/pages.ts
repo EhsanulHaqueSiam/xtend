@@ -316,6 +316,10 @@ interface Route {
   readonly redirect?: string;
   /** The rows a next page appends, for a page that lists no posts of its own (X's queues). */
   readonly more?: (batch: EngineBatch | null) => string;
+  /** X's cursor for the paged request's next page, and the variable it asks with, where X's list
+   * keeps them outside its timeline cursors (X's Live list: `{ offset }`). */
+  readonly next?: (batch: EngineBatch | null) => string | null;
+  readonly cursor?: (next: string) => unknown;
 }
 
 const RESERVED = new Set([
@@ -892,23 +896,28 @@ export function route(
           }`;
         },
       };
+    // X's rows sit in a box of their own that scrolls; scrolled to its end, X asks for its next
+    // page with an `{ offset }` cursor.
+    const rows = (b: EngineBatch | null) =>
+      (b?.liveAnalytics?.kind === "list" ? b.liveAnalytics.broadcasts : [])
+        .map(
+          (lb) =>
+            `<tr data-testid="live-analytics-row" style="height:80px"><td><a href="/i/account_analytics/live/${esc(lb.broadcastId)}">${esc(lb.title || "Untitled")}</a></td><td>${lb.minutesWatched}</td><td>${lb.views}</td><td>${lb.viewers}</td></tr>`,
+        )
+        .join("");
     return {
       title: "Analytics / X",
       requests: [r("liveOverviewProviderQuery", { cursor: null, limit: 30 })],
-      render: ([b]) => {
-        const a = b?.liveAnalytics;
-        const rows = a?.kind === "list" ? a.broadcasts : [];
-        return `${header("Analytics")}<div role="combobox">All</div><button type="button" aria-label="Sort by">⇅</button>${
-          rows.length === 0
+      paged: 0,
+      more: rows,
+      next: (b) => (b?.liveAnalytics?.kind === "list" ? b.liveAnalytics.next : null),
+      cursor: (offset) => ({ offset }),
+      render: ([b]) =>
+        `${header("Analytics")}<div role="combobox">All</div><button type="button" aria-label="Sort by">⇅</button>${
+          rows(b ?? null) === ""
             ? "<p>No broadcasts available for the selected filter</p>"
-            : `<table>${rows
-                .map(
-                  (lb) =>
-                    `<tr data-testid="live-analytics-row"><td><a href="/i/account_analytics/live/${esc(lb.broadcastId)}">${esc(lb.title || "Untitled")}</a></td><td>${lb.minutesWatched}</td><td>${lb.views}</td><td>${lb.viewers}</td></tr>`,
-                )
-                .join("")}</table>`
-        }`;
-      },
+            : `<div data-own-scroll style="height:120px;overflow-y:auto"><table><tbody data-list>${rows(b ?? null)}</tbody></table></div>`
+        }`,
     };
   }
   if (lower === "i" && second === "account_analytics") {

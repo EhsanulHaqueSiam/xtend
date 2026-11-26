@@ -811,10 +811,20 @@ export interface EngineBatch {
   readonly spaceAnalytics?:
     | { readonly kind: "list"; readonly spaces: ReadonlyArray<EngineSpaceRow> }
     | { readonly kind: "space"; readonly space: EngineSpaceStats };
-  /** X's Live analytics: the user's broadcasts, or one broadcast's numbers. */
+  /**
+   * X's Live analytics: a page of the user's broadcasts (X's first replaces the list, a later one
+   * joins it), one broadcast's numbers, or one X answered with none (deleted).
+   */
   readonly liveAnalytics?:
-    | { readonly kind: "list"; readonly broadcasts: ReadonlyArray<EngineBroadcastRow> }
-    | { readonly kind: "broadcast"; readonly broadcast: EngineBroadcastStats };
+    | {
+        readonly kind: "list";
+        readonly broadcasts: ReadonlyArray<EngineBroadcastRow>;
+        readonly first: boolean;
+        /** X's cursor for its next page; null at its end. */
+        readonly next: string | null;
+      }
+    | { readonly kind: "broadcast"; readonly broadcast: EngineBroadcastStats }
+    | { readonly kind: "unavailable"; readonly broadcastId: string };
   /** The Space X answered AudioSpaceById for with no Space (ended, removed, private, or an error). */
   readonly spaceUnavailable?: string;
   /** What the response told the moderators of each Community it names (`EngineCommunityAdmin`). */

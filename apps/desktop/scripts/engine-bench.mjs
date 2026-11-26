@@ -1639,7 +1639,23 @@ const benchmarks = [
         30_000,
       );
       if (!ours) return false;
-      if (ours === "paywall") return "no Premium: X's paywall";
+      if (ours === "paywall") {
+        // X live has its own page and gate: its paywall is checked there, not taken from audience.
+        await go("#/analyze?tab=x-live");
+        const walled = await until(
+          () =>
+            app(
+              `(document.querySelector("main")?.innerText ?? "").includes("Advanced analytics with Plus") || undefined`,
+            ),
+          30_000,
+        );
+        const upsell = await until(() =>
+          engine(
+            `(location.pathname.startsWith("/i/premium_sign_up") || document.body.innerText.includes("Upgrade to continue")) || undefined`,
+          ),
+        );
+        return walled && upsell && "no Premium: X's paywall on audience and live";
+      }
       const xs = await until(() =>
         engine(
           `(() => { const g = document.querySelector('section[aria-label="Active times"] .grid'); if (!g) return undefined; const cells = [...g.children].filter((c) => c.className.includes("bg-brand")); return cells.length === 168 ? JSON.stringify(cells.flatMap((c, i) => (c.style.opacity === "0.15" ? [] : [\`\${i % 7}-\${Math.floor(i / 7)}\`])).sort()) : undefined; })()`,

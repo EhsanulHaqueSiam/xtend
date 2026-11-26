@@ -111,6 +111,28 @@ it("waits for the guest before a page asked for early, so the step after it has 
   markXReady();
   await again;
   expect(same.calls).toEqual([]);
+
+  // A screen left before the guest could load its page no longer wants it; a page another screen
+  // still waits for loads.
+  const live = "https://x.com/i/account_analytics/live";
+  const left = fakeWebview("https://x.com/home");
+  registerXWebview(left.el);
+  const gone = new AbortController();
+  const dropped = xGo(live, gone.signal);
+  gone.abort();
+  expect(await dropped).toBe(false);
+  markXReady();
+  await Promise.resolve();
+  expect(left.calls).toEqual([]);
+  const shared = fakeWebview("https://x.com/home");
+  registerXWebview(shared.el);
+  const first = new AbortController();
+  void xGo(live, first.signal);
+  const kept = xGo(live, new AbortController().signal);
+  first.abort();
+  markXReady();
+  expect(await kept).toBe(true);
+  expect(shared.calls).toEqual([`load ${live}`]);
 });
 
 it("goes Back only from a post page it opened itself", async () => {

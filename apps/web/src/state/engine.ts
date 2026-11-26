@@ -506,9 +506,13 @@ export interface EngineState {
   readonly spaceStats: ReadonlyMap<string, EngineSpaceStats>;
   /** Spaces X answered with no Space (see `EngineBatch.spaceUnavailable`), until X sends one. */
   readonly spacesUnavailable: ReadonlySet<string>;
-  /** X's Live analytics: the user's broadcasts once X listed them, and each broadcast's numbers. */
+  /**
+   * X's Live analytics: the user's broadcasts once X listed them, in X's order across its pages,
+   * whether X has more, and each broadcast's numbers (null for one X no longer has).
+   */
   readonly broadcastList: ReadonlyArray<EngineBroadcastRow> | null;
-  readonly broadcastStats: ReadonlyMap<string, EngineBroadcastStats>;
+  readonly broadcastMore: boolean;
+  readonly broadcastStats: ReadonlyMap<string, EngineBroadcastStats | null>;
 }
 
 /** X's claim for its account analytics (GetUserClaims), Premium. */
@@ -645,6 +649,7 @@ export const emptyEngine: EngineState = {
   spaceStats: new Map(),
   spacesUnavailable: new Set(),
   broadcastList: null,
+  broadcastMore: false,
   broadcastStats: new Map(),
 };
 
@@ -863,15 +868,7 @@ export function mergeBatch(state: EngineState, batch: EngineBatch): EngineState 
             )
           : state.spacesUnavailable,
     xArticles: mergeXArticles(state.xArticles, batch),
-    broadcastList:
-      batch.liveAnalytics?.kind === "list" ? batch.liveAnalytics.broadcasts : state.broadcastList,
-    broadcastStats:
-      batch.liveAnalytics?.kind === "broadcast"
-        ? new Map(state.broadcastStats).set(
-            batch.liveAnalytics.broadcast.broadcastId,
-            batch.liveAnalytics.broadcast,
-          )
-        : state.broadcastStats,
+    ...mergeLive(state, batch),
   };
   const listed = surfacesOf(batch).reduce(
     (state, surface) =>
@@ -997,6 +994,33 @@ function mergeQueues(
             cases.communityId,
             page(state.reportCases.get(cases.communityId), cases.cases, (c) => c.postId),
           ),
+  };
+}
+
+/** X's broadcasts with this answer's: X's first page is its list now, a later one joins it. */
+function mergeLive(
+  state: EngineState,
+  batch: EngineBatch,
+): Pick<EngineState, "broadcastList" | "broadcastMore" | "broadcastStats"> {
+  const { broadcastList, broadcastMore, broadcastStats } = state;
+  const live = batch.liveAnalytics;
+  if (live === undefined) return { broadcastList, broadcastMore, broadcastStats };
+  if (live.kind === "list")
+    return {
+      broadcastList:
+        live.first || broadcastList === null
+          ? live.broadcasts
+          : join(broadcastList, live.broadcasts, (b) => b.broadcastId),
+      broadcastMore: live.next !== null,
+      broadcastStats,
+    };
+  return {
+    broadcastList,
+    broadcastMore,
+    broadcastStats: new Map(broadcastStats).set(
+      live.kind === "broadcast" ? live.broadcast.broadcastId : live.broadcastId,
+      live.kind === "broadcast" ? live.broadcast : null,
+    ),
   };
 }
 
