@@ -10,54 +10,68 @@ const path = require("node:path");
 const root = path.resolve(__dirname, "../..");
 
 // Never read by a typecheck, build or test. `check` still formats them.
-const INERT = [/^docs\//, /^\.agents\//, /^\.vite-hooks\//, /^[^/]+\.md$/, /^knip\.jsonc$/];
+const INERT = [
+  /^docs\//,
+  /^\.agents\//,
+  /^\.devcontainer\//,
+  /^skills\//,
+  /^\.vite-hooks\//,
+  /^[^/]+\.md$/,
+  /^\.github\/[^/]+\.md$/,
+  /^\.github\/ISSUE_TEMPLATE\//,
+  /^knip\.jsonc$/,
+];
 
-// Workspace packages by directory: apps/* and packages/*, as in pnpm-workspace.yaml.
+// Every app imports these.
+const SHARED = /^packages\//;
+// These import the apps' source by path (scenarios, dev tooling, evals): an app change reaches them.
+const APP_SOURCE = /^(apps|packages)\//;
+const IMPORT_APPS = new Set(["scripts", "evals"]);
+
+// Workspace packages by directory, from pnpm-workspace.yaml's `packages:` list (`dir/*` or `dir`).
 function readWorkspace() {
-  return ["apps", "packages"].flatMap((group) =>
-    fs.readdirSync(path.join(root, group)).flatMap((name) => {
-      const manifest = path.join(root, group, name, "package.json");
-      if (!fs.existsSync(manifest)) return [];
-      return [
-        { dir: `${group}/${name}`, name: JSON.parse(fs.readFileSync(manifest, "utf8")).name },
-      ];
-    }),
+  const yaml = fs.readFileSync(path.join(root, "pnpm-workspace.yaml"), "utf8");
+  const entries = /^packages:\n((?:[ \t]+-.*\n)+)/m
+    .exec(yaml)[1]
+    .split("\n")
+    .map((line) => line.replace(/^\s*-\s*/, "").trim())
+    .filter(Boolean);
+  const dirs = entries.flatMap((entry) =>
+    entry.endsWith("/*")
+      ? fs
+          .readdirSync(path.join(root, entry.slice(0, -2)))
+          .map((name) => `${entry.slice(0, -2)}/${name}`)
+      : [entry],
   );
+  return dirs.flatMap((dir) => {
+    const manifest = path.join(root, dir, "package.json");
+    if (!fs.existsSync(manifest)) return [];
+    return [{ dir, name: JSON.parse(fs.readFileSync(manifest, "utf8")).name }];
+  });
 }
 
 function decide(files, packages) {
   const all = packages.map((pkg) => pkg.name).sort();
   let everything = files === null;
-  let scripts = false;
+  let appSource = false;
   const affected = new Set();
 
   for (const file of files ?? []) {
     if (INERT.some((pattern) => pattern.test(file))) continue;
-    // Root scripts belong to no package and no build reads them; only `pnpm test` runs them.
-    if (file.startsWith("scripts/")) {
-      scripts = true;
-      continue;
-    }
     const owner = packages.find((pkg) => file.startsWith(`${pkg.dir}/`));
     // A root file (lockfile, workspace, configs, .github) is read by every package or by CI
     // itself, and a manifest can change the dependencies every package resolves.
     if (owner === undefined || path.posix.basename(file) === "package.json") everything = true;
-    // Every app imports the shared packages.
-    // The lint plugin is loaded by vite.config.ts, never imported: it reaches only itself.
-    else if (owner.dir.startsWith("packages/") && owner.dir !== "packages/oxlint-plugin")
-      for (const name of all) affected.add(name);
+    else if (SHARED.test(owner.dir)) for (const name of all) affected.add(name);
     else affected.add(owner.name);
+    if (owner !== undefined && APP_SOURCE.test(owner.dir)) appSource = true;
   }
+  if (appSource) for (const pkg of packages) if (IMPORT_APPS.has(pkg.dir)) affected.add(pkg.name);
 
   const names = everything ? all : [...affected].sort();
-  return {
-    affected: names,
-    outputs: {
-      // Every package ends up in the desktop app the smoke test boots, web included.
-      build: names.length > 0,
-      test: names.length > 0 || scripts,
-    },
-  };
+  // Every package ends up in the desktop app the smoke test boots, and the engine suite lives in
+  // scripts: anything affected builds and tests.
+  return { affected: names, outputs: { build: names.length > 0, test: names.length > 0 } };
 }
 
 function main() {
@@ -77,5 +91,4 @@ function main() {
 }
 
 module.exports = { readWorkspace, decide };
-
 if (require.main === module) main();

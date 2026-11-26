@@ -95,6 +95,8 @@ export interface MainWindowOptions {
   readonly importCookiesPath?: string | undefined;
   /** Mock X's origin (dev and tests): x.com on its own partition, answered by the mock. */
   readonly mockX?: string | null;
+  /** Hidden and never throttled as a background page, for engine tests (main decides when). */
+  readonly headless?: boolean;
   readonly log: (message: string, detail?: unknown) => void;
 }
 
@@ -228,6 +230,7 @@ export function createMainWindow(options: MainWindowOptions) {
   useSystemSpellcheckLanguages(xSession);
 
   const window = new BrowserWindow({
+    show: options.headless !== true,
     width: 1440,
     height: 920,
     minWidth: 900,
@@ -242,6 +245,7 @@ export function createMainWindow(options: MainWindowOptions) {
       contextIsolation: true,
       sandbox: true,
       webviewTag: true,
+      backgroundThrottling: options.headless !== true,
     },
   });
   // Linux and Windows would otherwise draw Electron's stock File/Edit/View bar over the app;
@@ -313,7 +317,11 @@ export function createMainWindow(options: MainWindowOptions) {
   // Main decides what the app's webview becomes, whatever the page asked for.
   const overlayPreload = NodePath.join(import.meta.dirname, "overlayPreload.cjs");
   appContents.on("will-attach-webview", (event, webPreferences, params) => {
-    if (hardenXWebview(webPreferences, params, { partition, preload: overlayPreload })) return;
+    if (hardenXWebview(webPreferences, params, { partition, preload: overlayPreload })) {
+      // A hidden window's x.com would otherwise run as a background tab: timers slowed, no frames.
+      if (options.headless === true) webPreferences.backgroundThrottling = false;
+      return;
+    }
     event.preventDefault();
     options.log("refused a webview", { src: params.src, partition: params.partition });
   });

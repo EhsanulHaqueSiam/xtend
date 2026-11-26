@@ -20,7 +20,7 @@ pnpm check:changed                # CI's checks for what you changed
 
 - [CONTRIBUTING.md](CONTRIBUTING.md): the path a change takes, from problem to release.
 - [AGENTS.md](AGENTS.md): the rules, the glossary and where code lives.
-- [Development](docs/operations/development.md): setup, dev data and fixtures, checks, CI and
+- [Development](docs/operations/00_development.md): setup, dev data and fixtures, checks, CI and
   releases.
 - [Internals](docs/internals/): the architecture's decisions (`overview.md`, `native-shell.md`,
   `effect-services.md`, `testing.md`).

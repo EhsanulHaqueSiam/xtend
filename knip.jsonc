@@ -8,11 +8,11 @@
   "ignoreFiles": [".github/scripts/ci-changes.d.cts"],
   "workspaces": {
     // t3.json runs the worktree setup; nothing imports it.
-    ".": {
-      "entry": ["scripts/setup-worktree.ts"],
+    "scripts": {
+      "entry": ["setup-worktree.ts"],
     },
     // vite.config.ts loads it through `lint.jsPlugins`, which knip does not read.
-    "packages/oxlint-plugin": {
+    "oxlint-plugin-xtend": {
       "entry": ["index.ts", "rules/*.test.ts"],
     },
     "apps/web": {

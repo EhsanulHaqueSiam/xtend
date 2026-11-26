@@ -56,6 +56,7 @@ export default defineConfig({
   },
   fmt: {
     ignorePatterns: [
+      ".repos",
       "dist",
       "dist-electron",
       "node_modules",
@@ -66,6 +67,7 @@ export default defineConfig({
   },
   lint: {
     ignorePatterns: [
+      ".repos",
       "dist",
       "dist-electron",
       "node_modules",
@@ -74,8 +76,8 @@ export default defineConfig({
       "**/routeTree.gen.ts",
     ],
     plugins: ["eslint", "oxc", "react", "unicorn", "typescript"],
-    // Xtend's own rules (packages/oxlint-plugin), ported from T3 Code's.
-    jsPlugins: ["./packages/oxlint-plugin/index.ts"],
+    // Xtend's own rules (oxlint-plugin-xtend), ported from T3 Code's.
+    jsPlugins: ["./oxlint-plugin-xtend/index.ts"],
     categories: {
       correctness: "warn",
       suspicious: "warn",
@@ -175,7 +177,7 @@ export default defineConfig({
         rules: { "xtend/no-real-time-wait-in-tests": "off" },
       },
       {
-        files: ["apps/**/src/**", "packages/**/src/**"],
+        files: ["apps/**/src/**", "packages/**/src/**", "infra/**/src/**", "scripts/scenarios/**"],
         rules: { "xtend/no-dom-test-environment": "error" },
       },
       {
@@ -183,7 +185,7 @@ export default defineConfig({
         rules: { "xtend/no-outset-state-indicators": "error" },
       },
       {
-        files: ["apps/*/src/**", "packages/*/src/**"],
+        files: ["apps/*/src/**", "packages/*/src/**", "infra/*/src/**", "scripts/scenarios/**"],
         excludeFiles: ["**/*.{test,spec}.{ts,tsx,js,jsx,mts,cts,mjs,cjs}"],
         rules: { "xtend/no-em-dash-copy": "error" },
       },

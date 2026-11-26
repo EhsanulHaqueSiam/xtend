@@ -32,7 +32,7 @@ it("rejects browser profile directories and session files by path", () => {
     expect(problem(file, text("")), file).toBeDefined();
   for (const file of [
     "scripts/dev-x-session.ts",
-    "docs/operations/development.md",
+    "docs/operations/00_development.md",
     "apps/server/src/x/Treg.ts",
     "apps/web/src/cookies.ts",
   ])

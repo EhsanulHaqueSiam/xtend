@@ -1,0 +1,103 @@
+name: Bug report
+description: Report broken behavior, a crash, a post that did not go out, or a wrong charge.
+labels:
+  - bug
+body:
+  - type: markdown
+    attributes:
+      value: |
+        This repository is public and Xtend runs inside your real X account. Before you paste
+        anything, remove handles, post and draft text, and paths under your home folder (write
+        `~` instead). **Never paste cookies, `auth-token`, a treg token or a screenshot that
+        shows your account.** Anyone who has them can act as you.
+
+        Easier: run `xtend triage --agent claude` (or `codex`). A coding agent on your machine
+        reads the logs, finds the cause and drafts a scrubbed issue for you to approve.
+        Security problems go to the private flow in [SECURITY.md](https://github.com/EhsanulHaqueSiam/xtend/blob/main/.github/SECURITY.md),
+        not here.
+
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Before submitting
+      options:
+        - label: I searched existing issues and did not find a duplicate.
+          required: true
+        - label: Nothing below contains a cookie, token, handle, post text or a screenshot of my account.
+          required: true
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - Desktop app or the X view
+        - Compose, Plan or the queue
+        - Analyze or Scores
+        - Library
+        - Engage or Leads
+        - Automate
+        - Settings, budget or spend
+        - CLI, HTTP API or MCP
+        - Install, updates or the service
+        - Not sure
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Open Plan
+        2. Queue a draft for the next slot
+        3. Wait for the slot
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: Settings, Service, Updates shows it. Say if it is a nightly.
+      placeholder: 0.4.2 (stable)
+    validations:
+      required: true
+
+  - type: input
+    id: environment
+    attributes:
+      label: Environment
+      description: OS and how the service runs (the desktop app, `xtend service install`, a shell).
+      placeholder: macOS 26.1, desktop app
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Doctor and trace output
+      description: |
+        Output of `xtend doctor` and `xtend trace --since 1h` around when it happened. Both are
+        read-only and scrubbed of tokens; still remove handles and home paths.
+      render: shell
+
+  - type: textarea
+    id: workaround
+    attributes:
+      label: Workaround
+      description: Anything that got you unstuck.

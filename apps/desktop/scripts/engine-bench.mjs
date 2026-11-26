@@ -1,5 +1,5 @@
 // Benchmarks the X engine under Xtend's own X screens on a running dev desktop
-// (XTEND_REMOTE_DEBUG, see docs/internals/native-shell.md). Writes stay dry: X's buttons are only
+// (XTEND_REMOTE_DEBUG, see docs/internals/03_native-shell.md). Writes stay dry: X's buttons are only
 // found, never pressed, except one private bookmark that is undone. `--help` lists the flags.
 import * as NodeChildProcess from "node:child_process";
 import * as NodeFS from "node:fs";

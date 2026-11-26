@@ -37,7 +37,7 @@ curl -s -X POST -H "Authorization: Bearer $TOKEN" http://127.0.0.1:4820/api/rpc/
 ```
 
 Method names and payloads are the ones in `packages/contracts`; the full table of statuses
-is in [the API reference](../operations/api.md).
+is in [the API reference](../operations/02_api.md).
 
 ## MCP
 
@@ -57,3 +57,5 @@ tools:
 | `spend_summary`  | this month's spend                           |
 
 Paid tools charge your treg balance under the same budget as the app.
+
+An agent skill for driving Xtend this way lives in [skills/xtend](../../skills/xtend/SKILL.md).

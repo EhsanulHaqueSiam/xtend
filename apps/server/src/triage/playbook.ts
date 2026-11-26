@@ -62,7 +62,7 @@ real code. Diagnosis grounded in source beats guessing.
 Work from evidence, in rough order of value:
 
 - **The trace file** (\`service.trace.ndjson\` and its rotated \`.1\` to \`.5\`), around the time of
-  the problem. \`xtend trace --since 2h\` summarizes it; \`docs/operations/observability.md\` in the
+  the problem. \`xtend trace --since 2h\` summarizes it; \`docs/operations/03_observability.md\` in the
   clone has \`jq\` recipes for failures, slow spans and one trace's tree. A failed span keeps its
   error tag and scrubbed cause.
 - **\`service.log\`**: the service's stdout, written by the desktop's child service or launchd.

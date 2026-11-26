@@ -69,3 +69,11 @@ if (NodeFS.existsSync(NodePath.join(NodeOS.homedir(), ".xtend-dev", "x-session")
   // A worktree without the login still works; the dev desktop says how to sign in.
   if (use.status !== 0) console.error("[setup] could not copy the saved X session; continuing.");
 }
+// The reference sources agents read (.repos/). Offline or rate-limited is no reason to fail setup.
+const repos = NodeChildProcess.spawnSync(
+  process.execPath,
+  [NodePath.join(worktree, "scripts", "sync-reference-repos.ts")],
+  { cwd: worktree, stdio: "inherit" },
+);
+if (repos.status !== 0)
+  console.error("[setup] could not sync .repos; run `pnpm sync:repos` later.");

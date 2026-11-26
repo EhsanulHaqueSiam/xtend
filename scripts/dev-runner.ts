@@ -14,7 +14,7 @@ import * as NodeNet from "node:net";
 import * as NodePath from "node:path";
 import * as NodeUtil from "node:util";
 
-import { startFakeTreg } from "../apps/e2e/src/fakeTreg.ts";
+import { startFakeTreg } from "./scenarios/fakeTreg.ts";
 import { refuseLiveHome } from "../apps/server/scripts/devData.ts";
 import {
   devUserData,

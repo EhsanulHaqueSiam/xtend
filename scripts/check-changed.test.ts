@@ -6,6 +6,7 @@ const packages = [
   { dir: "apps/server", name: "xtend" },
   { dir: "apps/web", name: "@xtend/web" },
   { dir: "packages/contracts", name: "@xtend/contracts" },
+  { dir: "scripts", name: "@xtend/scripts" },
 ];
 const plan = (
   changed: ReadonlyArray<string>,
@@ -38,22 +39,21 @@ it("compares with the remote main the branch is fewest commits past", () => {
 });
 
 it("formats docs alone, and lints, typechecks and tests what a code change reaches", () => {
-  expect(names(["docs/operations/development.md"])).toEqual(["format"]);
+  expect(names(["docs/operations/00_development.md"])).toEqual(["format"]);
   expect(
     names(["apps/web/src/state/x.ts"], {
       "apps/web/src/state": ["x.ts", "x.test.ts", "y.test.ts"],
     }),
-  ).toEqual([
+  ).toEqual(["format", "lint", "knip", "typecheck (2 packages)", "test @xtend/web"]);
+  // The scripts package imports app source by path, so an app change typechecks it too; a script
+  // change typechecks and tests only the scripts package.
+  expect(names(["scripts/dev-ps.ts"], { scripts: ["dev-ps.test.ts"] })).toEqual([
     "format",
     "lint",
     "knip",
     "typecheck (1 packages)",
-    "typecheck scripts",
-    "test @xtend/web",
+    "test @xtend/scripts",
   ]);
-  // Root scripts belong to no package: only their own typecheck runs for them.
-  expect(names(["scripts/dev-ps.ts"])).toContain("typecheck scripts");
-  expect(names(["scripts/dev-ps.ts"])).not.toContain("typecheck (1 packages)");
   const web = plan(["apps/web/src/state/x.ts"], { "apps/web/src/state": ["x.test.ts"] });
   expect(web.steps.at(-1)).toMatchObject({
     cwd: "apps/web",
@@ -65,7 +65,7 @@ it("formats docs alone, and lints, typechecks and tests what a code change reach
 
 it("lints every file when a rule or the lint config changes", () => {
   expect(names(["vite.config.ts"])).toContain("lint (rules changed: every file)");
-  expect(names(["packages/oxlint-plugin/rules/no-test-in-loop.ts"])).toContain(
+  expect(names(["oxlint-plugin-xtend/rules/no-test-in-loop.ts"])).toContain(
     "lint (rules changed: every file)",
   );
 });

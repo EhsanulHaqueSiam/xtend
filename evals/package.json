@@ -1,0 +1,19 @@
+{
+  "name": "@xtend/evals",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "reply-angles": "node reply-angles/run.ts",
+    "typecheck": "tsc-rs --noEmit",
+    "test": "vp test run --config ../vite.config.ts --dir ."
+  },
+  "dependencies": {
+    "@effect/platform-node": "catalog:",
+    "@xtend/contracts": "workspace:*",
+    "effect": "catalog:"
+  },
+  "devDependencies": {
+    "@types/node": "catalog:",
+    "vite-plus": "catalog:"
+  }
+}

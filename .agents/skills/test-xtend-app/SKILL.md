@@ -65,12 +65,12 @@ the latest numbers and the sighting count.
 
 ## Engine changes: mock X first
 
-Three tiers, cheapest first ([Mock X](../../../docs/operations/development.md#mock-x)):
+Three tiers, cheapest first ([Mock X](../../../docs/operations/00_development.md#mock-x)):
 
 - **Fixtures replay** (`?engine=all` in a browser): how a native screen draws engine data.
 - **Mock X**: the whole loop with no account. `pnpm test:engine` drives Xtend's screens on the
-  built desktop with mock X as the engine; add a check in `apps/e2e/src/engine` for the flow you
-  changed, and teach mock X (`apps/e2e/src/mockX`) the page or button first if it lacks one.
+  built desktop with mock X as the engine; add a check in `scripts/scenarios/engine` for the flow you
+  changed, and teach mock X (`scripts/scenarios/mockX`) the page or button first if it lacks one.
   `pnpm mock-x --desktop` (with `pnpm dev` running) opens the dev desktop on it to look around.
 - **Live bench**: whether x.com itself still behaves as the mock assumes. Only for what reads or
   presses X's real page in a new way.

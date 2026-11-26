@@ -1,0 +1,4 @@
+interface:
+  display_name: "Xtend Logs"
+  short_description: "Read an Xtend service's traces, logs and doctor checks"
+  default_prompt: "Use $xtend-logs to find what failed in the Xtend service's traces and logs."

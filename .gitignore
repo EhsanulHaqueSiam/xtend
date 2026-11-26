@@ -18,3 +18,5 @@ apps/desktop/release/
 dist-cli/
 .t3/
 .wrangler/
+# Read-only reference sources (pnpm sync:repos), links into a clone shared by every worktree.
+.repos/
