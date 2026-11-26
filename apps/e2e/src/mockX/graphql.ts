@@ -3,6 +3,7 @@ import type {
   EngineArticle,
   EngineBatch,
   EngineBookmarkFolder,
+  EngineBroadcastRow,
   EngineCommunity,
   EngineCommunityAdmin,
   EngineEntities,
@@ -1003,17 +1004,17 @@ function encodeAccountAnalytics(a: EngineAccountAnalytics | undefined, variables
       });
       return viewerV2({
         ...when(a.verifiedFollowers !== null, () => ({
-          verified_follower_count: a.verifiedFollowers,
+          verified_follower_count: String(a.verifiedFollowers),
           author_follower_metrics: { active_followers: 0, active_verified_followers: 0 },
         })),
         relationship_counts: { followers: a.followers },
         current_time_series: a.daily.flatMap((m, i) => rows(m, from + i * DAY_MS)),
         previous_totals: rows(a.previous, from - a.days * DAY_MS),
         hourly_backfill: [],
-        legacy_current_follow_metrics: a.daily.flatMap((m, i) =>
+        legacy_current_metrics: a.daily.flatMap((m, i) =>
           m.Follows === undefined ? [] : [follows(m, from + i * DAY_MS)],
         ),
-        legacy_previous_follow_metrics: [follows(a.previous, from - a.days * DAY_MS)],
+        legacy_previous_metrics: [follows(a.previous, from - a.days * DAY_MS)],
       });
     }
     case "content":
@@ -1084,13 +1085,17 @@ function encodeAccountAnalytics(a: EngineAccountAnalytics | undefined, variables
             engagement_type: r.type,
             count: r.count,
             timestamp,
-            is_in_network: null,
+            // X sends it as a string.
+            is_in_network: r.inNetwork === null ? null : String(r.inNetwork),
             client_app_id: r.app === null ? null : Number(r.app),
           })),
         uec_country_metrics_daily_time_series_count: a.rows
           .filter((r) => r.country !== null)
           .map((r) => ({ country: r.country, count: r.count, engagement_type: r.type, timestamp })),
-        organic_metrics_time_series: [],
+        organic_metrics_time_series: a.active.map((h) => ({
+          metric_values: [{ metric_type: a.activeMetric, metric_value: h.count }],
+          timestamp: { iso8601_time: h.at },
+        })),
       });
     }
   }
@@ -1109,6 +1114,29 @@ export const encodeFolder = (f: EngineBookmarkFolder): Json => ({
  * it; `everyone` names the authors the batch does not, and `variables` are the request's. Calls no
  * screen lists answer `{ data: {} }`.
  */
+/** One of the user's broadcasts as X's Live analytics answer it. */
+const encodeBroadcast = (b: EngineBroadcastRow): Json => {
+  const ms = (iso: string | null) => (iso === null ? null : Date.parse(iso));
+  return {
+    broadcast_id: b.broadcastId,
+    state: b.state,
+    status: b.title,
+    start_time: ms(b.startedAt),
+    end_time: ms(b.endedAt),
+    scheduled_start_time: ms(b.scheduledStart),
+    image_url: b.imageUrl,
+    private_chat: false,
+    counts: {
+      total_counts: {
+        views: String(b.views),
+        unique_viewers: String(b.viewers),
+        minutes_watched: String(b.minutesWatched),
+      },
+    },
+    id: btoa(`Broadcast:${b.broadcastId}`),
+  };
+};
+
 /** One Space as X's AudioSpaceById answers, its people under X's three roles. */
 function encodeSpace(sp: EngineSpace): Json {
   const ms = (iso: string | null) => (iso === null ? undefined : Date.parse(iso));
@@ -1273,6 +1301,34 @@ export function encodeBody(
           },
         },
       };
+    }
+    // X's Live analytics (bundle.AccountAnalytics), in its Relay shapes: times in milliseconds.
+    case "liveOverviewProviderQuery": {
+      const a = batch.liveAnalytics;
+      return a?.kind !== "list"
+        ? { data: {} }
+        : viewerV2({
+            broadcasts: {
+              broadcasts: a.broadcasts.map(encodeBroadcast),
+              // X's empty offset is its end.
+              cursor: { offset: a.more ? String(a.broadcasts.length) : "" },
+            },
+          });
+    }
+    case "liveDetailsQuery": {
+      const a = batch.liveAnalytics;
+      // X answers a broadcast it no longer has with none.
+      if (a?.kind === "unavailable") return { data: { broadcast_by_rest_id: null } };
+      return a?.kind !== "broadcast"
+        ? { data: {} }
+        : {
+            data: {
+              broadcast_by_rest_id: {
+                ...encodeBroadcast(a.broadcast),
+                concurrent_viewers_time_series: a.broadcast.concurrent,
+              },
+            },
+          };
     }
     case "UserByScreenName": {
       const user = batch.users[0];

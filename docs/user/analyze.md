@@ -52,7 +52,7 @@ their top posts. Watching is free; the list is shared with Scores' Watchlist. Ea
 
 ## X's own analytics
 
-**X overview**, **X content**, **X video**, **X audience** and **X Spaces** are X's own account analytics
+**X overview**, **X content**, **X video**, **X live**, **X audience** and **X Spaces** are X's own account analytics
 (x.com's Analytics in Creator Studio), read from X's page through your session in the desktop
 app, free. X shows them only to Premium accounts: without Premium these sections show X's
 paywall, and **Upgrade** opens X's own Premium page.
@@ -63,10 +63,16 @@ paywall, and **Upgrade** opens X's own Premium page.
 - **X content**: your posts in the range with X's impressions, likes, replies and reposts, by
   type and sortable by column. A post opens its own Post Analytics.
 - **X video**: views, watch time, completion rate and average watch time, then your videos.
-- **X audience**: who engaged by gender, age, country and device, for one engagement at a time.
+- **X live**: your latest broadcasts, as many as X's page first lists, with their views, unique
+  viewers and minutes watched, filtered as X filters them (All, Live, Scheduled, Ended). When you
+  have more, **Open on X for all** shows the rest on X's own page. A broadcast opens X's numbers
+  for it and, once it is over, its viewers by the minute.
+- **X audience**: who engaged by gender, age, country, device and whether they follow you, for one
+  engagement at a time, and **Active times**: the hours of the week your audience engaged over
+  the last 28 days. Active times counts the engagement X's page asked about, Likes unless you
+  changed it on x.com, and says so when it differs from the one picked here.
 - **X Spaces**: the Spaces you hosted with their state, length, listeners, replays and speakers.
   A Space opens X's numbers for it (total participants, peak listeners at once, replays), its
   listeners over time and its speakers; a recorded one opens its recording.
 
-A range picked here is X's own button pressed on X's page, so x.com shows the same range. Live
-analytics stay on x.com.
+A range picked here is X's own button pressed on X's page, so x.com shows the same range.
