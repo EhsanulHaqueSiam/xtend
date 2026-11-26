@@ -33,7 +33,7 @@ import {
   type OverlaySave,
   type OverlayReply,
 } from "../ipc/channels.ts";
-import { X_ARTICLE, X_ARTICLE_REPLIES, X_COMPOSER, X_REPLY_ROWS } from "../overlay/xDom.ts";
+import { X_ARTICLE, X_ARTICLE_REPLIES, X_COMPOSER, X_EDIT, X_REPLY_ROWS } from "../overlay/xDom.ts";
 
 const RECONNECT_MS = 2_000;
 const POLL_MS = 250;
@@ -253,6 +253,20 @@ export function commandRunner(deps: CommandRunnerDeps) {
           deadline,
         );
         return { type: "sessionPost", postId };
+      }
+      case "sessionEditPost": {
+        const enabled = await deps.sessionPostingEnabled().catch((error: unknown) => {
+          throw untouched(error);
+        });
+        if (!enabled) throw new NotAttempted("session posting is off in Settings");
+        const postId = await editThroughComposer(
+          deps.contents,
+          deps.cdp,
+          command,
+          deps.nextCreatedPost,
+          deadline,
+        );
+        return { type: "sessionEditPost", postId };
       }
       case "sessionLike": {
         const enabled = await deps.sessionPostingEnabled().catch((error: unknown) => {
@@ -758,6 +772,33 @@ async function pickAudience(
     else await sleep(POLL_MS);
 }
 
+/** Empties X's text box and resolves with it; fails when X's editor still holds text. */
+async function clearBox(cdp: Cdp): Promise<number> {
+  const box = await control(cdp, TEXTBOX, "text box");
+  await click(cdp, box);
+  // Chromium's own selectAll command, so no platform chord; then one Backspace clears it.
+  for (const [key, code, keyCode, commands] of [
+    ["a", "KeyA", 65, ["selectAll"]],
+    ["Backspace", "Backspace", 8, []],
+  ] as const) {
+    await cdp("Input.dispatchKeyEvent", {
+      type: "rawKeyDown",
+      key,
+      code,
+      windowsVirtualKeyCode: keyCode,
+      commands,
+    });
+    await cdp("Input.dispatchKeyEvent", {
+      type: "keyUp",
+      key,
+      code,
+      windowsVirtualKeyCode: keyCode,
+    });
+  }
+  if ((await textOf(cdp, box)) !== "") throw new Error("text left");
+  return box;
+}
+
 /** What the driver put in X's composer, so a refusal before Post can take it back out. */
 interface Touched {
   audience: boolean;
@@ -823,31 +864,7 @@ async function takeBack(cdp: Cdp, touched: Touched, error: unknown): Promise<Not
       }
       await waitForGone(cdp, X_COMPOSER.removeMedia, soon());
     });
-  if (touched.text)
-    await undo("the text", async () => {
-      const box = await control(cdp, TEXTBOX, "text box");
-      await click(cdp, box);
-      // Chromium's own selectAll command, so no platform chord; then one Backspace clears it.
-      for (const [key, code, keyCode, commands] of [
-        ["a", "KeyA", 65, ["selectAll"]],
-        ["Backspace", "Backspace", 8, []],
-      ] as const) {
-        await cdp("Input.dispatchKeyEvent", {
-          type: "rawKeyDown",
-          key,
-          code,
-          windowsVirtualKeyCode: keyCode,
-          commands,
-        });
-        await cdp("Input.dispatchKeyEvent", {
-          type: "keyUp",
-          key,
-          code,
-          windowsVirtualKeyCode: keyCode,
-        });
-      }
-      if ((await textOf(cdp, box)) !== "") throw new Error("text left");
-    });
+  if (touched.text) await undo("the text", () => clearBox(cdp));
   // Post was never pressed: nothing went to X, whatever stopped it.
   const said = error instanceof Error ? error.message : String(error);
   const message = said.endsWith("nothing was posted") ? said : `${said}; nothing was posted`;
@@ -974,6 +991,90 @@ export async function likeOnPage(
       throw new Error("x.com did not show the post as liked");
     },
   );
+}
+
+/**
+ * Edits the user's own post as they would: X's "..." on its page, X's Edit post row, X's text
+ * replaced in X's composer in edit mode (styles as sessionPost types them), X's Update, and X's
+ * confirm before the last edit, which the user's editor named. Before Update nothing changes.
+ */
+export async function editThroughComposer(
+  contents: Pick<Electron.WebContents, "loadURL">,
+  cdp: Cdp,
+  command: Extract<DesktopCommand, { type: "sessionEditPost" }>,
+  nextCreatedPost: () => Promise<string>,
+  deadline: number,
+): Promise<string> {
+  const step = (ms: number) => Math.min(Date.now() + ms, deadline);
+  const id = command.postId;
+  // The post's own article: its time links to it (to its history once edited). A post quoting it
+  // links there too, but comes after it on the post's page, so the first match is the post.
+  const caret = `article:has(a[href$="/status/${id}"] time, a[href$="/status/${id}/history"] time) ${X_EDIT.caret}`;
+  const ready = async () => {
+    await until(
+      contents.loadURL(`https://x.com/i/web/status/${id}`),
+      deadline,
+      "x.com did not load the post",
+    );
+    const shownBy = step(COMPOSER_TIMEOUT_MS);
+    let own = (await query(cdp, caret))[0];
+    while (own === undefined) {
+      if (Date.now() >= shownBy) throw new Error("x.com did not show the post");
+      await sleep(POLL_MS);
+      own = (await query(cdp, caret))[0];
+    }
+    await click(cdp, own);
+    const row = await waitForNode(cdp, X_EDIT.row, step(CONTROL_TIMEOUT_MS)).catch(async () => {
+      // X's menu, left open, would take the engine's next press.
+      for (const type of ["rawKeyDown", "keyUp"] as const)
+        await cdp("Input.dispatchKeyEvent", {
+          type,
+          key: "Escape",
+          code: "Escape",
+          windowsVirtualKeyCode: 27,
+        });
+      throw new Error("X offers no Edit post on it now (an hour after posting, 5 edits)");
+    });
+    await click(cdp, row);
+    await waitForText(cdp, X_EDIT.button, X_EDIT.word, step(COMPOSER_TIMEOUT_MS)).catch(() => {
+      throw new Error("x.com's composer did not open the post to edit");
+    });
+    const box = await clearBox(cdp);
+    await typeText(cdp, box, command.text, command.styles ?? []);
+    // Checked with no styles too: text typed after what X left would update the post with both.
+    const shown = JSON.parse(String(await callOn(cdp, box, EDITOR_TEXT))) as { text: string };
+    if (shown.text !== expectedEditor(command.text, []).text)
+      throw new Error("x.com's composer did not take the new text");
+    const button = await waitForNode(cdp, X_EDIT.button, step(CONTROL_TIMEOUT_MS), enabled).catch(
+      () => {
+        throw new Error("x.com kept Update off");
+      },
+    );
+    if ((await textOf(cdp, button)) !== X_EDIT.word)
+      throw new Error("x.com's composer left edit mode");
+    return button;
+  };
+  const button = await ready().catch((error: unknown) => {
+    const said = error instanceof Error ? error.message : String(error);
+    throw new NotAttempted(`${said}; the post was not changed`);
+  });
+  const got: { id?: string } = {};
+  void nextCreatedPost().then((created) => {
+    got.id = created;
+  });
+  await click(cdp, button);
+  const confirmBy = step(CREATED_TIMEOUT_MS);
+  let confirmed = false;
+  while (got.id === undefined) {
+    if (Date.now() >= confirmBy) throw new Error("x.com did not confirm the edit");
+    const [sheet] = confirmed ? [] : await query(cdp, X_EDIT.lastEditConfirm);
+    if (sheet !== undefined && (await textOf(cdp, sheet)) === X_EDIT.word) {
+      await click(cdp, sheet);
+      confirmed = true;
+    }
+    await sleep(POLL_MS);
+  }
+  return got.id;
 }
 
 /**

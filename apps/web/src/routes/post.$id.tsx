@@ -64,7 +64,8 @@ function PostScreen() {
   // back fresh, the reply already in place. One through the API left it here: load the thread again.
   const afterReply = () => void xGo(url).then((moved) => moved || refreshScreen());
   const posts = at(engine.lists, surface).flatMap((pid) => postOn(engine, surface, pid) ?? []);
-  const index = posts.findIndex((p) => p.postId === id);
+  // An edit made here lists X's new version in this post's place.
+  const index = posts.findIndex((p) => p.postId === id || p.edits.includes(id));
   const focal = index === -1 ? engine.posts.get(id) : posts[index];
   const above = index === -1 ? [] : posts.slice(0, index);
   const below = index === -1 ? [] : posts.slice(index + 1);

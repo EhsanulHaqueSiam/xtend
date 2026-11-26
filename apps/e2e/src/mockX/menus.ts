@@ -209,6 +209,13 @@ export function menuRows(state: MockState, spec: string): ReadonlyArray<Row> {
         buttons: [{ label: "Agree & Request a note" }, { label: "Cancel" }],
       },
     };
+    // X's Edit post (Premium): on the latest version, with edits left, inside X's hour. X opens
+    // its composer on /compose/post with the post in the route's state; mock X names it in the URL.
+    const editable =
+      p.edits.at(-1) === id &&
+      (p.editsRemaining ?? 0) > 0 &&
+      p.editableUntil !== null &&
+      Date.parse(p.editableUntil) > Date.now();
     if (p.author.userId === state.viewer.userId)
       return [
         {
@@ -227,6 +234,9 @@ export function menuRows(state: MockState, spec: string): ReadonlyArray<Row> {
             ],
           },
         },
+        ...(editable
+          ? [{ label: "Edit post", testid: "edit", go: `/compose/post?edit=${id}` }]
+          : []),
         {
           label: "Pin to your profile",
           write: graphql("PinTweet", { tweet_id: id }),

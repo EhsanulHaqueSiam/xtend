@@ -5,6 +5,7 @@ import {
   isComposeError,
   type PickedGif,
   type PostCommunity,
+  type PostEdit,
   type ReplySettings,
   type TextStyle,
 } from "@xtend/contracts";
@@ -55,6 +56,12 @@ export class SessionPosting extends Context.Service<
       readonly styles?: ReadonlyArray<TextStyle>;
       readonly paced?: boolean;
     }) => Effect.Effect<{ readonly postId: string }, ComposeError | DesktopUnavailableError>;
+    /**
+     * Edits the user's own post through X's own Edit post in the session view, for their click on
+     * Update, at the same human pace. The session is the only lane: treg's X post create (X's
+     * POST /2/tweets) takes no edit, so nothing here falls back to the API.
+     */
+    readonly edit: (input: PostEdit) => Effect.Effect<{ readonly postId: string }, ComposeError>;
     /** Presses X's own like on the post in the session view, at human pace. */
     readonly like: (postId: string) => Effect.Effect<void, ComposeError | DesktopUnavailableError>;
     /** Sends a DM through X's own message composer in the session view, at the same human pace. */
@@ -136,6 +143,25 @@ const make = Effect.gen(function* () {
     return { postId: result.postId };
   });
 
+  const edit = Effect.fn("SessionPosting.edit")(
+    function* (input: PostEdit) {
+      yield* requireEnabled;
+      const refused = yield* humanPace;
+      if (refused !== null)
+        return yield* new ComposeError({ operation: "sessionEditPost", detail: refused });
+      const { postId } = yield* desktop.request({
+        type: "sessionEditPost",
+        postId: input.postId,
+        text: input.text,
+        ...(input.styles === undefined || input.styles.length === 0
+          ? {}
+          : { styles: input.styles }),
+      });
+      return { postId };
+    },
+    Effect.mapError(fail("sessionEditPost")),
+  );
+
   // Shares the pace with posts: to X, a like and a reply are both one person clicking.
   const like = Effect.fn("SessionPosting.like")(function* (postId: string) {
     yield* requireEnabled.pipe(Effect.mapError(fail("sessionLike")));
@@ -185,7 +211,7 @@ const make = Effect.gen(function* () {
     Effect.mapError(fail("sessionNavigate")),
   );
 
-  return SessionPosting.of({ post, like, dm, article, navigate });
+  return SessionPosting.of({ post, edit, like, dm, article, navigate });
 });
 
 export const layer = Layer.effect(SessionPosting, make);

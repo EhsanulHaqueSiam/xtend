@@ -126,6 +126,23 @@ const post = Command.make("post", { text: Argument.String("text") }).pipe(
   ),
 );
 
+const edit = Command.make("edit", {
+  postId: Argument.String("post-id"),
+  text: Argument.String("text"),
+}).pipe(
+  Command.withDescription(
+    "Edit your own post through X's Edit post in the desktop app's session, free. X allows it for an hour after posting, up to 5 times.",
+  ),
+  Command.withHandler(({ postId, text }) =>
+    withApi(
+      Effect.flatMap(
+        call<{ readonly postId: string }>(Compose_METHODS.editPost, { postId, text }),
+        (edited) => Console.log(`edited https://x.com/i/status/${edited.postId}`),
+      ),
+    ),
+  ),
+);
+
 const queue = Command.make("queue").pipe(
   Command.withDescription("Drafts waiting in the queue."),
   Command.withHandler(() =>
@@ -341,6 +358,7 @@ export const cli = root.pipe(
   ),
   Command.withSubcommands([
     post,
+    edit,
     queue,
     report,
     spend,

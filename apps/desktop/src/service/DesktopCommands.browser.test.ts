@@ -2,7 +2,7 @@ import type { DesktopCommand } from "@xtend/contracts";
 import { expect, it, vi } from "vite-plus/test";
 
 import { fakeTimers } from "../testing/fakeTimers.ts";
-import { postThroughComposer } from "./DesktopCommands.ts";
+import { editThroughComposer, postThroughComposer } from "./DesktopCommands.ts";
 
 // Deadlines count from this fixed instant on the faked clock.
 const T0 = Date.parse("2026-11-02T12:00:00.000Z");
@@ -728,4 +728,94 @@ it("reads a Community's name as X's page shows it, so an & in it matches", async
     }),
   );
   expect([result, composer().audience]).toEqual(["777", "Design & Code"]);
+});
+
+/**
+ * X's page for the user's post 701 and, after it, a reply quoting it (its time links to 701 too).
+ * The post's "..." lists X's Edit post when `editable`; the row opens X's composer in edit mode
+ * with the post's text, and Update sends at once, or after X's confirm on the last edit.
+ */
+function fakeEditPage(
+  log: Array<string>,
+  options: { readonly editable: boolean; readonly lastEdit: boolean },
+) {
+  document.body.innerHTML = `
+<div id="react-root">
+  <article><a href="/you/status/701"><time>1m</time></a><button data-testid="caret" data-of="701">…</button><div>first take</div></article>
+  <article><a href="/ann/status/702"><time>1m</time></a><button data-testid="caret" data-of="702">…</button><div role="link"><a href="/you/status/701"><time>1m</time></a></div></article>
+</div>
+<div id="layers"></div>`;
+  const root = document.getElementById("react-root");
+  const layers = document.getElementById("layers")!;
+  let created: ((id: string) => void) | null = null;
+  const send = () => {
+    const text = layers.querySelector('[data-testid="tweetTextarea_0"]')?.textContent;
+    log.push(`create ${text}`);
+    created?.("703");
+  };
+  document.body.addEventListener("click", (event) => {
+    if (root?.isConnected !== true) return;
+    const target = event.target as HTMLElement;
+    const testid = target.closest<HTMLElement>("[data-testid]")?.dataset.testid;
+    if (testid === "caret") {
+      log.push(`menu ${target.dataset.of}`);
+      layers.innerHTML = `<div role="menu">${options.editable ? '<div role="menuitem" data-testid="edit">Edit post</div>' : ""}<div role="menuitem">Pin to your profile</div></div>`;
+    } else if (testid === "edit") {
+      log.push("edit row");
+      layers.innerHTML = `<div role="dialog"><div data-testid="tweetTextarea_0" contenteditable="true" role="textbox" style="width:200px;height:24px">first take</div><button data-testid="tweetButton">Update</button></div>`;
+    } else if (testid === "tweetButton") {
+      log.push("press Update");
+      if (!options.lastEdit) return send();
+      layers.insertAdjacentHTML(
+        "beforeend",
+        `<div role="alertdialog"><h1>This is your last edit</h1><button data-testid="confirmationSheetConfirm">Update</button></div>`,
+      );
+    } else if (testid === "confirmationSheetConfirm") {
+      log.push("confirm Update");
+      send();
+    }
+  });
+  return () =>
+    new Promise<string>((resolve) => {
+      created = resolve;
+    });
+}
+
+const edit = async (options: { readonly editable: boolean; readonly lastEdit: boolean }) => {
+  using _timers = fakeTimers({ now: T0 });
+  const log: Array<string> = [];
+  const nextCreated = fakeEditPage(log, options);
+  const editing = editThroughComposer(
+    { loadURL: async () => {} },
+    domCdp(log),
+    { type: "sessionEditPost", postId: "701", text: "second take" },
+    nextCreated,
+    T0 + 60_000,
+  ).catch((error: unknown) => error);
+  await vi.runAllTimersAsync();
+  return { log, result: await editing };
+};
+
+it("edits the post's own article through X's Edit row: X's text replaced, Update, and X's confirm on the last edit", async () => {
+  const { log, result } = await edit({ editable: true, lastEdit: true });
+  expect(result).toBe("703");
+  // The post's own "...", never the quoting reply's; the new text in place of X's, not after it.
+  expect(log).toEqual([
+    "menu 701",
+    "edit row",
+    "type second take",
+    "press Update",
+    "confirm Update",
+    "create second take",
+  ]);
+});
+
+it("refuses untouched when X offers no Edit post on the post, and never presses Update", async () => {
+  const { log, result } = await edit({ editable: false, lastEdit: false });
+  expect(result).toMatchObject({
+    message:
+      "X offers no Edit post on it now (an hour after posting, 5 edits); the post was not changed",
+    notAttempted: true,
+  });
+  expect(log).toEqual(["menu 701"]);
 });

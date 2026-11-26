@@ -1183,7 +1183,7 @@ it("lists a pinned post X also shows quoted, in X's entry order", () => {
   expect(at(state.lists, "profile:posts:5")).toEqual(["1", "2"]);
 });
 
-it("puts the user's new reply under the post it answers, and a new post on top of Home", () => {
+it("puts the user's new reply under the post it answers, a new post on top of Home, and an edit in its earlier version's place", () => {
   const thread = [post("1", "2026-10-30T00:00:00Z"), post("2", "2026-10-30T01:00:00Z")];
   let state = mergeBatch(
     emptyEngine,
@@ -1211,6 +1211,18 @@ it("puts the user's new reply under the post it answers, and a new post on top o
   expect(at(state.lists, "following")).toEqual(["10", "3"]);
   expect(at(state.lists, "profile:posts:1")).toEqual(["10"]);
   expect(at(showWaiting(state, "following").lists, "following")).toEqual(["10", "4", "3"]);
+  // X's answer to an edit names the versions before it: the new one takes their place, on Home,
+  // behind the pill and under the post the reply answers, never on top as a new post.
+  state = mergeBatch(
+    state,
+    batch("CreateTweet", [{ ...quote, postId: "11", edits: ["10", "11"] }]),
+  );
+  state = mergeBatch(state, batch("CreateTweet", [{ ...reply, postId: "12", edits: ["9", "12"] }]));
+  expect(at(state.lists, "following")).toEqual(["11", "3"]);
+  expect(at(state.lists, "profile:posts:1")).toEqual(["11"]);
+  expect(at(showWaiting(state, "following").lists, "following")).toEqual(["11", "4", "3"]);
+  expect(at(state.lists, "post:1")).toEqual(["1", "12", "2"]);
+  expect(state.posts.get("1")?.metrics.replies).toBe(1);
 });
 
 it("keeps dismissed trends hidden across stale captures of their tab, reconciles removal, and restores on Undo", () => {

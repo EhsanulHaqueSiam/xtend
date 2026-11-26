@@ -5,6 +5,7 @@ import {
   type MediaKind,
   type PickedGif,
   type PostCommunity,
+  type PostEdit,
   type ReplyTone,
 } from "@xtend/contracts";
 import * as Effect from "effect/Effect";
@@ -54,6 +55,14 @@ export const postNowAtom = clientRuntime.fn<string>()(
 );
 
 /** Post now through the user's session only, for a Post button that showed no price. */
+/** X's Edit post on the user's own post, through their session, for their click on Update. */
+export const editPostAtom = clientRuntime.fn<PostEdit>()(
+  Effect.fnUntraced(function* (edit) {
+    const client = yield* XtendClient;
+    return yield* client[Compose_METHODS.editPost](edit);
+  }),
+);
+
 export const sessionPostNowAtom = clientRuntime.fn<{
   readonly id: string;
   readonly gif?: PickedGif | undefined;

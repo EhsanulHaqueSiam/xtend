@@ -74,6 +74,13 @@ session actions are on, and a formatted post goes through your session, free. On
 without Premium they show X's own offer, which opens X's Subscribe page. Posts written in bold or
 italic on X show that way in Xtend.
 
+**Edit post** (X Premium) shows in a post's "..." only where X offers it: on your own post, for an
+hour after posting, up to 5 edits. It turns the post's text into an editor in place, with how many
+edits X has left and until when; **Update** goes through X's own Edit post in your session, free,
+and the post then shows X's new version with "Last edited". If X refuses, the editor keeps your
+text. X's API cannot edit, so it needs session actions on in the desktop app, as X's other rows
+in the "..." do. `xtend edit <post-id> "<text>"` does the same from a terminal.
+
 A post with a Space opens it beside the screen you are reading, in the right column: its title,
 host, speakers, listeners and the people you track among them (your leads with their stage, and
 the people you reply under). Opening it joins nothing. **Start listening** joins it in public, as

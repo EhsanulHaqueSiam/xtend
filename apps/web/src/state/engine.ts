@@ -1320,9 +1320,25 @@ function promptsOf(state: EngineState, batch: EngineBatch): EngineState["prompts
 /**
  * The user's own new post, from X's composer response, where X shows it at once: a reply right
  * under the post it answers, whose reply count goes up by one; any other post on top of Home and
- * the user's profile. X's next page of those lists already holds it, so it never shows twice.
+ * the user's profile. X's next page of those lists already holds it, so it never shows twice. An
+ * edit (X's answer names the versions before it) takes their place wherever they are listed.
  */
 function placeCreated(state: EngineState, post: EnginePost): EngineState {
+  const earlier = new Set(post.edits.filter((id) => id !== post.postId));
+  if (earlier.size > 0) {
+    const swap = (per: PerSurface<string>) =>
+      (Object.keys(per) as ReadonlyArray<AnySurface>).reduce(
+        (out, s) =>
+          set(out, s, unique(at(per, s).map((id) => (earlier.has(id) ? post.postId : id)))),
+        per,
+      );
+    return {
+      ...state,
+      lists: swap(state.lists),
+      waiting: swap(state.waiting),
+      nextTop: swap(state.nextTop),
+    };
+  }
   const parentId = post.replyToId;
   if (parentId === null) {
     const surfaces: ReadonlyArray<AnySurface> = [

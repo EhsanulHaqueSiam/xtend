@@ -3,7 +3,14 @@ import * as Rpc from "effect/rpc/Rpc";
 import * as RpcGroup from "effect/rpc/RpcGroup";
 
 import { XId } from "./baseSchemas.ts";
-import { DraftPoll, PickedGif, PostCommunity, ReplySettings, TextStyle } from "./compose.ts";
+import {
+  DraftPoll,
+  PickedGif,
+  PostCommunity,
+  PostEdit,
+  ReplySettings,
+  TextStyle,
+} from "./compose.ts";
 import type { ObservedPost } from "./observation.ts";
 
 /**
@@ -30,6 +37,11 @@ export const DesktopCommand = Schema.Union([
     /** Picked in X's own "Choose audience" card, before anything else. */
     community: Schema.optional(PostCommunity),
   }),
+  /**
+   * Edits the user's own post through X's own Edit post (same setting as sessionPost): X's "..." on
+   * its page, X's Edit row, the text replaced in X's composer, X's Update.
+   */
+  Schema.Struct({ type: Schema.Literal("sessionEditPost"), ...PostEdit.fields }),
   Schema.Struct({ type: Schema.Literal("sessionNavigate"), url: Schema.String }),
   /** Clicks X's own like on the post's page in the session view; same setting as sessionPost. */
   Schema.Struct({ type: Schema.Literal("sessionLike"), postId: XId }),
@@ -60,6 +72,8 @@ export const DESKTOP_COMMAND_LIMIT_MS = {
   sessionScreenshot: 20_000,
   sessionNavigate: 20_000,
   sessionPost: 180_000,
+  // The post's page, X's menu, X's composer and X's create: no upload.
+  sessionEditPost: 60_000,
   sessionLike: 30_000,
   sessionDm: 45_000,
   // X saves an Article's content a few seconds after the last change, and the cover uploads first.
@@ -69,6 +83,8 @@ export const DESKTOP_COMMAND_LIMIT_MS = {
 export const DesktopCommandResult = Schema.Union([
   Schema.Struct({ type: Schema.Literal("sessionScreenshot"), pngBase64: Schema.String }),
   Schema.Struct({ type: Schema.Literal("sessionPost"), postId: XId }),
+  /** The new version's id; X keeps the earlier one as its history. */
+  Schema.Struct({ type: Schema.Literal("sessionEditPost"), postId: XId }),
   Schema.Struct({ type: Schema.Literal("sessionNavigate") }),
   Schema.Struct({ type: Schema.Literal("sessionLike") }),
   Schema.Struct({ type: Schema.Literal("sessionDm") }),

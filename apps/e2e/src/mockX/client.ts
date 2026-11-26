@@ -738,7 +738,9 @@ const SCRIPT = String.raw`
         broadcast: document.querySelector("[data-share] input")?.checked === true,
       };
       audience = null;
-      const variables = { tweet_text: text, ...to, ...(tags.length > 0 ? { richtext_options: { richtext_tags: tags } } : {}) };
+      // An edit is X's create naming the version it replaces.
+      const edit = el.dataset.edit ? { edit_options: { previous_tweet_id: el.dataset.edit } } : {};
+      const variables = { tweet_text: text, ...to, ...edit, ...(tags.length > 0 ? { richtext_options: { richtext_tags: tags } } : {}) };
       if (text.trim() !== "") void post("/i/api/graphql/" + window.__mockHash[op] + "/" + op, { variables }).then(() => history.back());
       return;
     }

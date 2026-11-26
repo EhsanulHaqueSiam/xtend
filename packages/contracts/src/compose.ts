@@ -136,6 +136,17 @@ export const PostCommunity = Schema.Struct({
 });
 export type PostCommunity = typeof PostCommunity.Type;
 
+/**
+ * The user's own post as their click on Update leaves it: X Premium's Edit post replaces its text
+ * (and bold and italic) through X's own composer, within X's hour and five edits.
+ */
+export const PostEdit = Schema.Struct({
+  postId: XId,
+  text: Schema.String,
+  styles: Schema.optional(Schema.Array(TextStyle)),
+});
+export type PostEdit = typeof PostEdit.Type;
+
 /** What the editor can change. Everything else on a Draft is owned by the service. */
 export const DraftPatch = Schema.Struct({
   kind: Schema.optional(DraftKind),
@@ -271,6 +282,7 @@ export const Compose_METHODS = {
   draftUpdate: "compose.draftUpdate",
   draftDelete: "compose.draftDelete",
   postNow: "compose.postNow",
+  editPost: "compose.editPost",
   assistHook: "compose.assistHook",
   assistRewrite: "compose.assistRewrite",
   assistThreadIdeas: "compose.assistThreadIdeas",
@@ -324,6 +336,12 @@ export const ComposeRpcGroup = RpcGroup.make(
       caption: Schema.optional(Schema.String),
     }),
     success: Draft,
+    error: ComposeError,
+  }),
+  /** Free, through the user's session only; answers the id X gives the new version. */
+  Rpc.make(Compose_METHODS.editPost, {
+    payload: PostEdit,
+    success: Schema.Struct({ postId: XId }),
     error: ComposeError,
   }),
   Rpc.make(Compose_METHODS.assistHook, {
