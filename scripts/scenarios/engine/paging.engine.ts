@@ -25,8 +25,18 @@ const resize = async (times: number) => {
     })`);
 };
 
+const xTab = () =>
+  e.engine<string>(
+    `[...document.querySelectorAll('[role="tab"][aria-selected="true"]')].map((t) => t.textContent.trim()).join()`,
+  );
+
 test("X's page goes back where it was after the engine asks it for more, so X stops loading by itself", async () => {
+  // The desktop opens on Home's Following feed. Its pick of X's tab lands first, so the switch
+  // below is the only pick in flight: two at once land in either order, and X could end up paging
+  // Following while the list reads For you.
+  await expect.poll(xTab).toBe("Following");
   await e.app.evaluate(() => void (location.hash = "#/home?feed=forYou"));
+  await expect.poll(xTab).toBe("For you");
   // The reader reaches the native list's end: the engine scrolls X's page, and X answers.
   await expect
     .poll(async () => {

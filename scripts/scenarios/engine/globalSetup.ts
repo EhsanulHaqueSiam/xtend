@@ -8,8 +8,8 @@ import { lockAppDir } from "../lock.ts";
 const DESKTOP = NodePath.join(APP_DIR, "apps/desktop");
 
 /** The web app the service serves and the desktop's main and preloads, built from this source. */
-export default function setup() {
-  const release = lockAppDir(APP_DIR);
+export default async function setup() {
+  const release = await lockAppDir(APP_DIR);
   try {
     buildWeb();
     // XTEND_DESKTOP_DEV makes the pack launch a desktop when it finishes, outside the harness.

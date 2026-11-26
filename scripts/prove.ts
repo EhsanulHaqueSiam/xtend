@@ -20,17 +20,19 @@ export interface RunReport {
 }
 
 /**
- * A run "failed" only when a test ran and its assertion failed. A file-level error (a hook, so the
- * app never started) or no report at all (setup or the build broke) is "broken": it proves nothing.
+ * A run "failed" only when a test ran and its check failed: an assertion, or a wait for the page
+ * that never came true, which is how a missing button shows. A file-level error (a hook, so the app
+ * never started), no report (setup or the build broke) or a pass with an unhandled error that still
+ * failed the run is "broken": it proves nothing.
  */
-export const resultOf = (report: RunReport | undefined) =>
+export const resultOf = (report: RunReport | undefined, exitedClean: boolean) =>
   report === undefined ||
   report.numTotalTests === 0 ||
   report.testResults.some((file) => file.message !== "")
     ? "broken"
     : report.numFailedTests > 0
       ? "failed"
-      : report.numPassedTests > 0
+      : report.numPassedTests > 0 && exitedClean
         ? "passed"
         : "broken";
 
@@ -47,11 +49,17 @@ export const projectOf = (file: string) =>
       : undefined;
 
 const root = NodePath.dirname(import.meta.dirname);
+// Ctrl-C reaches the child and ends it; this process, blocked in spawnSync, sees it only there.
+let interrupted = () => process.exit(130);
 const run = (
   cmd: string,
   args: ReadonlyArray<string>,
   options: NodeChildProcess.SpawnSyncOptions,
-) => NodeChildProcess.spawnSync(cmd, args, { stdio: "inherit", ...options }).status === 0;
+) => {
+  const result = NodeChildProcess.spawnSync(cmd, args, { stdio: "inherit", ...options });
+  if (result.signal === "SIGINT" || result.status === 130) interrupted();
+  return result.status === 0;
+};
 const git = (...args: ReadonlyArray<string>) =>
   NodeChildProcess.execFileSync("git", args, { cwd: root, encoding: "utf8" }).trim();
 
@@ -74,18 +82,18 @@ if (import.meta.main) {
     fail("usage: pnpm prove scripts/scenarios/<name>.{e2e,engine}.ts [--base <ref>] [-t <name>]");
 
   const base = git("merge-base", "HEAD", values.base);
-  // A desktop from before mock X would ignore XTEND_MOCK_X and open the real x.com.
+  // A desktop from before mock X had its own profile would open the real x.com; the engine harness
+  // refuses it too, this only says so before an install.
   if (
     project === "engine" &&
-    NodeChildProcess.spawnSync(
-      "git",
-      ["cat-file", "-e", `${base}:apps/desktop/src/window/mockX.ts`],
-      {
-        cwd: root,
-      },
-    ).status !== 0
+    !NodeChildProcess.spawnSync("git", ["show", `${base}:apps/desktop/src/main.ts`], {
+      cwd: root,
+      encoding: "utf8",
+    }).stdout.includes("xtend-mock-x-")
   )
-    fail(`the base ${base.slice(0, 10)} predates mock X: its desktop would open the real x.com`);
+    fail(
+      `the base ${base.slice(0, 10)} predates mock X's own profile: it would open the real x.com`,
+    );
 
   // Its own worktree per run, next to this checkout and never in /tmp: concurrent proofs never
   // share or remove each other's.
@@ -98,10 +106,10 @@ if (import.meta.main) {
   const cleanup = () => {
     if (!values.keep) git("worktree", "remove", "--force", dir);
   };
-  process.on("SIGINT", () => {
+  interrupted = () => {
     cleanup();
     process.exit(130);
-  });
+  };
   const installed =
     run("pnpm", ["install", "--frozen-lockfile", "--prefer-offline"], { cwd: dir }) &&
     // The Electron binary is not in the store; its install script fetches it (from its cache).
@@ -115,7 +123,7 @@ if (import.meta.main) {
   const reportFile = NodePath.join(NodeOS.tmpdir(), `xtend-prove-${process.pid}.json`);
   const scenario = (appDir: string) => {
     NodeFS.rmSync(reportFile, { force: true });
-    run(
+    const exitedClean = run(
       "pnpm",
       ["exec", "vp", "test", "run", "--project", project!, NodePath.relative("scripts", file)]
         .concat(values.t === undefined ? [] : ["-t", values.t])
@@ -129,7 +137,7 @@ if (import.meta.main) {
       ? (JSON.parse(NodeFS.readFileSync(reportFile, "utf8")) as RunReport)
       : undefined;
     NodeFS.rmSync(reportFile, { force: true });
-    return resultOf(report);
+    return resultOf(report, exitedClean);
   };
   console.log(`\n[prove] ${file} against the base's app (${base.slice(0, 10)}, ${values.base})`);
   const onBase = scenario(dir);

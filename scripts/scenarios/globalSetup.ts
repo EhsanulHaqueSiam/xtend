@@ -19,8 +19,8 @@ export function buildWeb() {
   });
 }
 
-export default function setup() {
-  const release = lockAppDir(APP_DIR);
+export default async function setup() {
+  const release = await lockAppDir(APP_DIR);
   try {
     buildWeb();
   } catch (error) {

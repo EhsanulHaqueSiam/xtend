@@ -98,8 +98,8 @@ free the port). Do not patch Xtend's source as a fix; a good issue helps every u
 - Scrub before showing it: no tokens, cookies, handles, post or draft text, or home paths
   (write `~` instead). When in doubt, leave it out.
 - Show the user the complete text and get an explicit yes before posting. Post with
-  `gh issue create --repo EhsanulHaqueSiam/xtend --label via-triage` only then. Without `gh`,
-  give them a `https://github.com/EhsanulHaqueSiam/xtend/issues/new?title=...&body=...` URL,
-  URL-encoded and under 6,000 characters, and let them open it.
+  `gh issue create --repo EhsanulHaqueSiam/xtend` only then. Without `gh`, give them a
+  `https://github.com/EhsanulHaqueSiam/xtend/issues/new?title=...&body=...` URL, URL-encoded and
+  under 6,000 characters, and let them open it.
 - Note at the end which agent and model drafted it.
 - If an open issue already matches, offer to comment there with this machine's evidence instead.

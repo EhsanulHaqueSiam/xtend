@@ -9,15 +9,19 @@ const report = (failed: number, passed: number, message = "") => ({
   testResults: [{ message }],
 });
 
-it("counts only a failed assertion as a failure; a hook error or no report proves nothing", () => {
-  expect(resultOf(report(1, 0))).toBe("failed");
-  expect(resultOf(report(0, 1))).toBe("passed");
+it("counts only a failed check as a failure; a hook error, no report or a dirty pass proves nothing", () => {
+  expect(resultOf(report(1, 0), false)).toBe("failed");
+  expect(resultOf(report(0, 1), true)).toBe("passed");
+  // Every test passed, but an unhandled error failed the run.
+  expect(resultOf(report(0, 1), false)).toBe("broken");
   // beforeAll threw (the app never started): vitest skips the tests and puts the error on the file.
-  expect(resultOf({ ...report(0, 0, "service did not come up"), numTotalTests: 1 })).toBe("broken");
+  expect(resultOf({ ...report(0, 0, "service did not come up"), numTotalTests: 1 }, false)).toBe(
+    "broken",
+  );
   // globalSetup or the build failed: no report was written.
-  expect(resultOf(undefined)).toBe("broken");
+  expect(resultOf(undefined, false)).toBe("broken");
   // -t matched nothing.
-  expect(resultOf(report(0, 0))).toBe("broken");
+  expect(resultOf(report(0, 0), true)).toBe("broken");
 });
 
 it("proves a fix only when the check fails on the base and passes here", () => {

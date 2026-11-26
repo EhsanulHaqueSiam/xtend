@@ -248,7 +248,7 @@ const summarize = (runs: ReadonlyArray<Run>): Summary => {
 
 // The bench only reads the bundles, so it lets go of the build lock once they are written.
 if (values.build) {
-  const release = buildDesktop();
+  const release = await buildDesktop();
   release();
 }
 const runs: Array<Run> = [];
