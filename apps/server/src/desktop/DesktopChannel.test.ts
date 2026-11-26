@@ -1,6 +1,7 @@
 import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import { describe, expect, it } from "@effect/vitest";
 import { DESKTOP_COMMAND_LIMIT_MS, type DesktopCommandRequest } from "@xtend/contracts";
+import * as Clock from "effect/Clock";
 import * as Effect from "effect/Effect";
 import * as Fiber from "effect/Fiber";
 import * as Layer from "effect/Layer";
@@ -98,10 +99,13 @@ describe("DesktopChannel", () => {
         );
         yield* Effect.repeat(channel.connected, { until: (connected) => connected });
 
+        const sentAt = yield* Clock.currentTimeMillis;
         const post = yield* channel
           .request({ type: "sessionPost", text: "hi", mediaPaths: ["/tmp/clip.mp4"] })
           .pipe(Effect.forkChild);
-        const { id } = yield* Queue.take(received);
+        const { id, deadline } = yield* Queue.take(received);
+        // The desktop gives up by the end of that limit, counted from here, however late it reads it.
+        expect(deadline).toBe(sentAt + DESKTOP_COMMAND_LIMIT_MS.sessionPost);
         // The whole of the desktop's limit for a post goes by while the video uploads.
         yield* TestClock.adjust(DESKTOP_COMMAND_LIMIT_MS.sessionPost);
         yield* channel.complete({ id, result: { type: "sessionPost", postId: "42" }, error: null });

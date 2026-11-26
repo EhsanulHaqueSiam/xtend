@@ -2,7 +2,7 @@ import type { DesktopCommand } from "@xtend/contracts";
 import { expect, it, vi } from "vite-plus/test";
 
 import { fakeTimers } from "../testing/fakeTimers.ts";
-import { editThroughComposer, postThroughComposer } from "./DesktopCommands.ts";
+import { createdPosts, editThroughComposer, postThroughComposer } from "./DesktopCommands.ts";
 
 // Deadlines count from this fixed instant on the faked clock.
 const T0 = Date.parse("2026-11-02T12:00:00.000Z");
@@ -730,42 +730,71 @@ it("reads a Community's name as X's page shows it, so an & in it matches", async
   expect([result, composer().audience]).toEqual(["777", "Design & Code"]);
 });
 
+interface EditPage {
+  /** X's "..." on the post lists Edit post (inside X's hour, edits left). */
+  readonly editable: boolean;
+  /** The post's last edit: X confirms Update in a sheet of its own. */
+  readonly lastEdit: boolean;
+  /** Another post's menu, with its own Edit post, opens over the post's as Xtend's engine reads it. */
+  readonly competing?: boolean;
+  /** The post X's composer edits once the row is pressed: someone else's press moved it. */
+  readonly editing?: string;
+  /** X's composer moves on to another post's edit before X's last-edit sheet. */
+  readonly movesBeforeConfirm?: boolean;
+}
+
 /**
  * X's page for the user's post 701 and, after it, a reply quoting it (its time links to 701 too).
- * The post's "..." lists X's Edit post when `editable`; the row opens X's composer in edit mode
- * with the post's text, and Update sends at once, or after X's confirm on the last edit.
+ * The post's "..." opens the menu its aria-controls names, listing Edit post when `editable`; the
+ * row opens X's composer on /compose/post, the post's id in the route's state as X's history keeps
+ * it, with the post's text. Update sends at once, or after X's confirm on the last edit.
  */
 function fakeEditPage(
   log: Array<string>,
-  options: { readonly editable: boolean; readonly lastEdit: boolean },
+  created: ReturnType<typeof createdPosts>,
+  page: EditPage,
 ) {
   document.body.innerHTML = `
 <div id="react-root">
-  <article><a href="/you/status/701"><time>1m</time></a><button data-testid="caret" data-of="701">…</button><div>first take</div></article>
-  <article><a href="/ann/status/702"><time>1m</time></a><button data-testid="caret" data-of="702">…</button><div role="link"><a href="/you/status/701"><time>1m</time></a></div></article>
+  <article><a href="/you/status/701"><time>1m</time></a><button data-testid="caret" data-of="701" aria-haspopup="menu" aria-expanded="false">…</button><div>first take</div></article>
+  <article><a href="/ann/status/702"><time>1m</time></a><button data-testid="caret" data-of="702" aria-haspopup="menu" aria-expanded="false">…</button><div role="link"><a href="/you/status/701"><time>1m</time></a></div></article>
 </div>
 <div id="layers"></div>`;
   const root = document.getElementById("react-root");
   const layers = document.getElementById("layers")!;
-  let created: ((id: string) => void) | null = null;
+  const editingAt = (postId: string) =>
+    history.replaceState({ key: "k", state: { previousTweetId: postId } }, "", "/compose/post");
+  const menu = (of: string) =>
+    `<div role="menu" id="menu-${of}">${page.editable ? `<div role="menuitem" data-testid="edit" data-of="${of}">Edit post</div>` : ""}<div role="menuitem">Pin to your profile</div></div>`;
   const send = () => {
     const text = layers.querySelector('[data-testid="tweetTextarea_0"]')?.textContent;
     log.push(`create ${text}`);
-    created?.("703");
+    // X's answers to other creates come first; only this edit's is the command's.
+    created.created("900", null);
+    created.created("901", "702");
+    created.created(
+      "703",
+      (history.state as { state: { previousTweetId: string } }).state.previousTweetId,
+    );
   };
   document.body.addEventListener("click", (event) => {
     if (root?.isConnected !== true) return;
     const target = event.target as HTMLElement;
     const testid = target.closest<HTMLElement>("[data-testid]")?.dataset.testid;
     if (testid === "caret") {
-      log.push(`menu ${target.dataset.of}`);
-      layers.innerHTML = `<div role="menu">${options.editable ? '<div role="menuitem" data-testid="edit">Edit post</div>' : ""}<div role="menuitem">Pin to your profile</div></div>`;
+      const of = target.dataset.of!;
+      log.push(`menu ${of}`);
+      target.setAttribute("aria-expanded", "true");
+      target.setAttribute("aria-controls", `menu-${of}`);
+      layers.innerHTML = menu(of) + (page.competing === true ? menu("702") : "");
     } else if (testid === "edit") {
-      log.push("edit row");
+      log.push(`edit row ${target.dataset.of}`);
+      editingAt(page.editing ?? target.dataset.of!);
       layers.innerHTML = `<div role="dialog"><div data-testid="tweetTextarea_0" contenteditable="true" role="textbox" style="width:200px;height:24px">first take</div><button data-testid="tweetButton">Update</button></div>`;
     } else if (testid === "tweetButton") {
       log.push("press Update");
-      if (!options.lastEdit) return send();
+      if (!page.lastEdit) return send();
+      if (page.movesBeforeConfirm === true) editingAt("702");
       layers.insertAdjacentHTML(
         "beforeend",
         `<div role="alertdialog"><h1>This is your last edit</h1><button data-testid="confirmationSheetConfirm">Update</button></div>`,
@@ -775,34 +804,36 @@ function fakeEditPage(
       send();
     }
   });
-  return () =>
-    new Promise<string>((resolve) => {
-      created = resolve;
-    });
 }
 
-const edit = async (options: { readonly editable: boolean; readonly lastEdit: boolean }) => {
+const edit = async (page: EditPage, allowed = async () => true) => {
   using _timers = fakeTimers({ now: T0 });
+  const start = location.href;
   const log: Array<string> = [];
-  const nextCreated = fakeEditPage(log, options);
+  const created = createdPosts();
+  fakeEditPage(log, created, page);
   const editing = editThroughComposer(
     { loadURL: async () => {} },
     domCdp(log),
     { type: "sessionEditPost", postId: "701", text: "second take" },
-    nextCreated,
+    created.next,
     T0 + 60_000,
+    allowed,
   ).catch((error: unknown) => error);
   await vi.runAllTimersAsync();
+  history.replaceState(null, "", start);
   return { log, result: await editing };
 };
 
-it("edits the post's own article through X's Edit row: X's text replaced, Update, and X's confirm on the last edit", async () => {
-  const { log, result } = await edit({ editable: true, lastEdit: true });
+it("edits the post through the Edit row of the menu its own press opened, though another opens over it, and X's confirm on the last edit", async () => {
+  const { log, result } = await edit({ editable: true, lastEdit: true, competing: true });
+  // X's id for this edit, not for the creates X answered before it.
   expect(result).toBe("703");
-  // The post's own "...", never the quoting reply's; the new text in place of X's, not after it.
+  // The post's own "...", never the quoting reply's; its own menu's row; the new text in place of
+  // X's, not after it.
   expect(log).toEqual([
     "menu 701",
-    "edit row",
+    "edit row 701",
     "type second take",
     "press Update",
     "confirm Update",
@@ -818,4 +849,28 @@ it("refuses untouched when X offers no Edit post on the post, and never presses 
     notAttempted: true,
   });
   expect(log).toEqual(["menu 701"]);
+});
+
+it("presses neither Update nor X's last-edit confirm unless X's composer is editing the post and session actions are still on", async () => {
+  const other = await edit({ editable: true, lastEdit: false, editing: "702" });
+  expect(other.result).toMatchObject({
+    message: "x.com's composer is not editing this post; the post was not changed",
+    notAttempted: true,
+  });
+  expect(other.log).toEqual(["menu 701", "edit row 701"]);
+
+  const moved = await edit({ editable: true, lastEdit: true, movesBeforeConfirm: true });
+  expect(moved.result).toMatchObject({
+    message: "x.com's composer is not editing this post; the post was not changed",
+    notAttempted: true,
+  });
+  expect(moved.log).not.toContain("confirm Update");
+
+  // Turned off while the edit ran (the runner asked before it started): asked again at the press.
+  const off = await edit({ editable: true, lastEdit: false }, async () => false);
+  expect(off.result).toMatchObject({
+    message: "session posting is off in Settings; the post was not changed",
+    notAttempted: true,
+  });
+  expect(off.log).not.toContain("press Update");
 });

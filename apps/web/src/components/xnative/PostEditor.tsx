@@ -12,23 +12,6 @@ import { plainEntities, shiftStyles, sliceStyles, toggleStyle } from "../compose
 import { toastAtom } from "../ui/toast";
 import { xClock } from "./format";
 
-/** The post's text as X's composer opens it to edit: its links expanded, its runs moved with them. */
-const editable = (post: EnginePost) => {
-  let text = post.text;
-  let styles = post.styles ?? [];
-  // Last first, so each link's offsets still hold when it is expanded.
-  const links = post.entities.urls.flatMap(({ indices, expanded }) =>
-    indices === null ? [] : [{ indices, expanded }],
-  );
-  for (const { indices, expanded } of links.toSorted((a, b) => b.indices[0] - a.indices[0])) {
-    const [start, end] = indices;
-    const next = text.slice(0, start) + expanded + text.slice(end);
-    styles = shiftStyles(styles, text, next, start + expanded.length);
-    text = next;
-  }
-  return { text, styles };
-};
-
 const tool =
   "-m-1.5 grid size-[34px] cursor-pointer place-items-center rounded-full text-[#1d9bf0] transition-colors duration-150 hover:bg-[#1d9bf0]/10";
 
@@ -51,7 +34,8 @@ export function PostEditor({
   const canFormat = useAtomValue(canFormatAtom);
   const update = useAtomSet(editPostAtom, { mode: "promiseExit" });
   const setToast = useAtomSet(toastAtom);
-  const [start] = useState(() => editable(post));
+  // X's own edit text where it differs from what the post shows (a link expanded, a card's kept).
+  const [start] = useState(() => post.edit ?? { text: post.text, styles: post.styles ?? [] });
   const [text, setText] = useState(start.text);
   // X leaves mentions and links plain, so they never hold a run.
   const [styles, setRuns] = useState<ReadonlyArray<TextStyle>>(start.styles);
@@ -60,11 +44,13 @@ export function PostEditor({
   const [caret, setCaret] = useState({ start: 0, end: 0 });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Update was pressed but X's answer never came: X may have saved it, so no second Update.
+  const [unsure, setUnsure] = useState(false);
 
   const length = charCount(text);
   // X keeps Update off until the post changes.
   const changed = text !== start.text || JSON.stringify(styles) !== JSON.stringify(start.styles);
-  const ready = !busy && changed && text.trim() !== "" && length <= limit;
+  const ready = !busy && !unsure && changed && text.trim() !== "" && length <= limit;
   const save = async () => {
     if (!ready) return;
     setBusy(true);
@@ -79,6 +65,7 @@ export function PostEditor({
     });
     setBusy(false);
     if (Exit.isFailure(exit)) return setError(failText(exit.cause));
+    if (exit.value.postId === null) return setUnsure(true);
     setToast({ text: "Updated on X" });
     onDone();
   };
@@ -162,6 +149,11 @@ export function PostEditor({
           {error}
         </p>
       )}
+      {unsure ? (
+        <p role="status" className="text-xs text-muted-foreground">
+          X may have saved this edit; check the post
+        </p>
+      ) : null}
     </div>
   );
 }

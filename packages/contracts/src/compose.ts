@@ -338,10 +338,13 @@ export const ComposeRpcGroup = RpcGroup.make(
     success: Draft,
     error: ComposeError,
   }),
-  /** Free, through the user's session only; answers the id X gives the new version. */
+  /**
+   * Free, through the user's session only. Answers the id X gives the new version, or null when
+   * X's Update was pressed but X's answer never came: X may have saved it. An error changed nothing.
+   */
   Rpc.make(Compose_METHODS.editPost, {
     payload: PostEdit,
-    success: Schema.Struct({ postId: XId }),
+    success: Schema.Struct({ postId: Schema.NullOr(XId) }),
     error: ComposeError,
   }),
   Rpc.make(Compose_METHODS.assistHook, {

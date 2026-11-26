@@ -17,7 +17,10 @@ const { markXReady, registerXWebview } = await import("../../state/x");
 const TCO = "https://t.co/abc";
 const LINK = "https://xtend.dev/changelog";
 
-/** The user's own post, within X's hour: bold on its first word, X's t.co link in its text. */
+/**
+ * The user's own post, within X's hour: bold on its first word, and a trailing link X draws as
+ * the card, so the shown text leaves it out while X's own edit text keeps it, expanded.
+ */
 const post = (postId: string, text: string, extra: Partial<EnginePost> = {}): EnginePost => ({
   postId,
   author: { userId: "1", handle: "you", name: "You", followers: 10, verified: true },
@@ -35,7 +38,7 @@ const post = (postId: string, text: string, extra: Partial<EnginePost> = {}): En
   replyToId: null,
   replyingTo: [],
   entities: {
-    urls: [{ url: TCO, expanded: LINK, display: "xtend.dev/changelog", indices: [15, 31] }],
+    urls: [{ url: TCO, expanded: LINK, display: "xtend.dev/changelog", indices: null }],
     mentions: [],
     hashtags: [],
     cashtags: [],
@@ -53,6 +56,7 @@ const post = (postId: string, text: string, extra: Partial<EnginePost> = {}): En
   editableUntil: "2026-11-26T10:00:00.000Z",
   aiGenerated: false,
   styles: [{ start: 0, end: 8, style: "Bold" }],
+  edit: { text: `${text} ${LINK}`, styles: [{ start: 0, end: 8, style: "Bold" }] },
   translation: null,
   ...extra,
 });
@@ -95,7 +99,14 @@ const engine = () => {
   return pressed;
 };
 
-const screenWith = (sessionPostingEnabled: boolean, edits: Array<PostEdit>, fail: () => boolean) =>
+/** How X's Edit post went, per Update: refused, Update pressed with no answer from X, or saved. */
+type Outcome = "refused" | "unsure" | "saved";
+
+const screenWith = (
+  sessionPostingEnabled: boolean,
+  edits: Array<PostEdit>,
+  outcomes: Array<Outcome>,
+) =>
   render(
     <div style={{ height: 800, display: "flex" }}>
       <EngineSync />
@@ -107,14 +118,15 @@ const screenWith = (sessionPostingEnabled: boolean, edits: Array<PostEdit>, fail
         "compose.editPost": (edit) =>
           Effect.suspend(() => {
             edits.push(edit);
-            return fail()
+            const outcome = outcomes.shift();
+            return outcome === "refused"
               ? Effect.fail(
                   new ComposeError({
                     operation: "sessionEditPost",
                     detail: "X offers no Edit post on it now; the post was not changed",
                   }),
                 )
-              : Effect.succeed({ postId: "61" });
+              : Effect.succeed({ postId: outcome === "unsure" ? null : "61" });
           }),
       },
     },
@@ -125,24 +137,24 @@ const openEdit = async (row: ReturnType<typeof page.getByRole>) => {
   await page.getByRole("menuitem", { name: "Edit post" }).click();
 };
 
-it("turns the post's text into an editor for X's Edit post: Cancel, Update through the session, and an error that keeps the text", async () => {
+it("turns the post's text into an editor for X's Edit post: Cancel, Update through the session, an error that keeps the text, and X's unconfirmed save", async () => {
   const edits: Array<PostEdit> = [];
-  let failing = true;
   engine();
   try {
-    await using screen = await screenWith(true, edits, () => failing);
-    bridge.emitEngine(batch("Likes", [post("60", `Shipping today ${TCO}`)]));
+    await using screen = await screenWith(true, edits, ["refused", "unsure", "saved"]);
+    bridge.emitEngine(batch("Likes", [post("60", "Shipping today")]));
     const row = screen.getByRole("article").first();
     const box = row.getByRole("textbox", { name: "Edit post text" });
+    const update = row.getByRole("button", { name: "Update" });
 
-    // As X's composer opens it: the link expanded; X's window in the line under it, free.
+    // As X's composer opens it: the card's link kept and expanded; X's window under it, free.
     await openEdit(row);
     await expect.element(box).toHaveValue(`Shipping today ${LINK}`);
     await expect.element(row.getByText(/^4 edits left · until .+ · free · 38\/280$/)).toBeVisible();
-    await expect.element(row.getByRole("button", { name: "Update" })).toBeDisabled();
+    await expect.element(update).toBeDisabled();
     await row.getByRole("button", { name: "Cancel" }).click();
     await expect.element(box).not.toBeInTheDocument();
-    await expect.element(row.getByText("xtend.dev/changelog")).toBeVisible();
+    await expect.element(row.getByText("Shipping today")).toBeVisible();
 
     await openEdit(row);
     await userEvent.fill(box, `Shipping today ${LINK} for real`);
@@ -155,15 +167,25 @@ it("turns the post's text into an editor for X's Edit post: Cancel, Update throu
       );
     await expect.element(box).toHaveValue(`Shipping today ${LINK} for real`);
 
-    failing = false;
-    await row.getByRole("button", { name: "Update" }).click();
+    // X's Update was pressed but its answer never came: no second Update, the text kept.
+    await update.click();
+    await expect
+      .element(row.getByRole("status"))
+      .toHaveTextContent("X may have saved this edit; check the post");
+    await expect.element(update).toBeDisabled();
+    await expect.element(box).toHaveValue(`Shipping today ${LINK} for real`);
+
+    await row.getByRole("button", { name: "Cancel" }).click();
+    await openEdit(row);
+    await userEvent.fill(box, `Shipping today ${LINK} for real`);
+    await update.click();
     await expect.element(box).not.toBeInTheDocument();
     const sent = {
       postId: "60",
       text: `Shipping today ${LINK} for real`,
-      styles: post("60", "").styles,
+      styles: [{ start: 0, end: 8, style: "Bold" }],
     };
-    expect(edits).toEqual([sent, sent]);
+    expect(edits).toEqual([sent, sent, sent]);
 
     // X's answer to the edit takes the post's place, with "Last edited".
     bridge.emitEngine(
@@ -186,8 +208,8 @@ it("turns the post's text into an editor for X's Edit post: Cancel, Update throu
 it("with session actions off, X's Edit post opens no editor, as X's other rows press nothing", async () => {
   const pressed = engine();
   try {
-    await using screen = await screenWith(false, [], () => false);
-    bridge.emitEngine(batch("Likes", [post("60", `Shipping today ${TCO}`)]));
+    await using screen = await screenWith(false, [], []);
+    bridge.emitEngine(batch("Likes", [post("60", "Shipping today")]));
     const row = screen.getByRole("article").first();
     await openEdit(row);
     await expect.element(page.getByRole("menuitem", { name: "Edit post" })).not.toBeInTheDocument();

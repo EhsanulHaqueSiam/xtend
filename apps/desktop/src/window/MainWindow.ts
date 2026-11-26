@@ -39,7 +39,7 @@ import {
 import { createOverlayFeed } from "../overlay/OverlayFeed.ts";
 import { xSkinCss } from "../overlay/xSkin.ts";
 import { failureReason, recoveryPage } from "../service/recoveryPage.ts";
-import { attachDesktopCommands } from "../service/DesktopCommands.ts";
+import { attachDesktopCommands, createdPosts } from "../service/DesktopCommands.ts";
 import { viewerBatch } from "../xSession/engineBatch.ts";
 import { attachSessionCapture } from "../xSession/SessionCapture.ts";
 import { MOCK_X_PARTITION, useMockX } from "./mockX.ts";
@@ -433,7 +433,7 @@ export function createMainWindow(options: MainWindowOptions) {
     });
 
     const overlay = createOverlayFeed(contents);
-    const createdListeners = new Set<(postId: string) => void>();
+    const created = createdPosts();
     let navViewer: string | null = null;
     const commands = attachDesktopCommands(contents, {
       serviceUrl: options.serviceUrl,
@@ -441,7 +441,7 @@ export function createMainWindow(options: MainWindowOptions) {
       navigate: (url) => {
         if (isXHost(url)) void contents.loadURL(url);
       },
-      nextCreatedPost: () => new Promise((resolve) => createdListeners.add(resolve)),
+      nextCreatedPost: created.next,
       log: options.log,
     });
     const detachCapture = attachSessionCapture(contents, {
@@ -456,10 +456,7 @@ export function createMainWindow(options: MainWindowOptions) {
       },
       onRender: (batch) => toApp(ENGINE_CHANNEL, batch),
       onGrok: (capture) => toApp(GROK_CHANNEL, capture),
-      onCreatedPost: (postId) => {
-        for (const listener of createdListeners) listener(postId);
-        createdListeners.clear();
-      },
+      onCreatedPost: created.created,
       fallbackViewer: () => navViewer,
     });
 

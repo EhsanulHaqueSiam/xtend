@@ -264,6 +264,14 @@ export function readCreatedPostId(body: unknown): string | undefined {
   return id !== undefined && X_ID.test(id) ? id : undefined;
 }
 
+/** The post an edit replaces, from X's create request (edit_options); null for a new post. */
+export function readEditedPostId(variables: Json): string | null {
+  const id = isRecord(variables.edit_options)
+    ? variables.edit_options.previous_tweet_id
+    : undefined;
+  return typeof id === "string" && X_ID.test(id) ? id : null;
+}
+
 export const isViewerOperation = (url: string): boolean =>
   /\/i\/api\/graphql\/[^/]+\/Viewer(\?|$)/.test(url);
 

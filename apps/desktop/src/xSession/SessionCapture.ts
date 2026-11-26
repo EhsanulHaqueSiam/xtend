@@ -10,6 +10,7 @@ import {
   isViewerOperation,
   normalizeGraphqlResponse,
   readCreatedPostId,
+  readEditedPostId,
   readViewerHandle,
   sourceFromOperation,
 } from "./normalizeGraphql.ts";
@@ -50,8 +51,11 @@ export interface SessionCaptureOptions {
   readonly onPosts?: (posts: ReadonlyArray<ObservedPost>, viewerHandle: string | null) => void;
   /** Every response's posts as Xtend's own X screens draw them, tagged with X's operation. */
   readonly onRender?: (batch: EngineBatch) => void;
-  /** The id x.com returned for a post the session just created (CreateTweet). */
-  readonly onCreatedPost?: (postId: string) => void;
+  /**
+   * The id x.com returned for a post the session just created (CreateTweet), and for an edit the
+   * post it replaces (X's request's edit_options.previous_tweet_id); null for a new post.
+   */
+  readonly onCreatedPost?: (postId: string, previous: string | null) => void;
   /**
    * X's older Grok client's GraphQL answers and streamed answer lines, for the window only: they
    * never reach the service, a log or an observation.
@@ -253,7 +257,8 @@ export function attachSessionCapture(
     const posts = normalizeGraphqlResponse(body);
     if (isCreateTweetOperation(url)) {
       const created = readCreatedPostId(body) ?? posts[0]?.postId;
-      if (created !== undefined) options.onCreatedPost?.(created);
+      if (created !== undefined)
+        options.onCreatedPost?.(created, readEditedPostId(requestVariables(url, sent)));
     }
     if (posts.length === 0) return;
     const viewer = viewerHandle ?? options.fallbackViewer?.() ?? null;

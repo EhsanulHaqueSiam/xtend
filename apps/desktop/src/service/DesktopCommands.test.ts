@@ -5,6 +5,7 @@ import type { XPost } from "@xtend/contracts";
 import type { OverlaySave } from "../ipc/channels.ts";
 import {
   commandRunner,
+  createdPosts,
   dmThroughComposer,
   likeOnPage,
   overlaySaver,
@@ -227,7 +228,8 @@ it("gives up on a composer that never loads by the limit, and refuses what waite
   expect(log).toEqual(["load https://x.com/compose/post"]);
 });
 
-it("refuses a post while session posting is off, before touching the page", async () => {
+it("refuses a post while session posting is off, or once the service stopped waiting, before touching the page", async () => {
+  vi.useFakeTimers({ now: T0 });
   const log: Array<string> = [];
   const run = commandRunner({
     ...composer(log),
@@ -237,6 +239,11 @@ it("refuses a post while session posting is off, before touching the page", asyn
   });
   await expect(run(post("hi"))).rejects.toMatchObject({
     message: "session posting is off in Settings",
+    notAttempted: true,
+  });
+  // Read late, behind a long command, past the deadline the service sent with it.
+  await expect(run(post("late"), T0 - 1)).rejects.toMatchObject({
+    message: "sessionPost waited out its time behind another command",
     notAttempted: true,
   });
   expect(log).toEqual([]);
@@ -436,4 +443,25 @@ it("refuses a DM untouched when X's message composer never draws", async () => {
   await vi.advanceTimersByTimeAsync(15_000);
   expect(await result).toMatchObject({ notAttempted: true });
   expect(log).toEqual(["load https://x.com/messages/compose?recipient_id=42"]);
+});
+
+it("hands X's create answer only to the command waiting for that one: a new post, or an edit of its post", async () => {
+  const created = createdPosts();
+  const [post, edit, gaveUp] = [
+    new AbortController(),
+    new AbortController(),
+    new AbortController(),
+  ];
+  const newPost = created.next(null, post.signal);
+  const edited = created.next("701", edit.signal);
+  const stale = created.next("702", gaveUp.signal);
+  gaveUp.abort();
+  // Someone else's edit, then this edit, then a new post; the command that gave up hears nothing.
+  created.created("900", "800");
+  created.created("703", "701");
+  created.created("901", null);
+  created.created("704", "702");
+  await expect(edited).resolves.toBe("703");
+  await expect(newPost).resolves.toBe("901");
+  await expect(Promise.race([stale, Promise.resolve("never heard")])).resolves.toBe("never heard");
 });

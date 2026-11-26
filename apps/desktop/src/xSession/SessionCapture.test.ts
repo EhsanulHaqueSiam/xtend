@@ -90,7 +90,7 @@ let serviceStatus: number;
 let detach: () => void;
 
 const start = (
-  onCreatedPost?: (postId: string) => void,
+  onCreatedPost?: (postId: string, previous: string | null) => void,
   accountId = 1,
   onRender?: (batch: EngineBatch) => void,
 ) => {
@@ -133,8 +133,8 @@ afterEach(() => {
 });
 
 it("sends the posts in GraphQL responses the window received, base64 bodies too, and nothing else", async () => {
-  const created: Array<string> = [];
-  start((postId) => created.push(postId));
+  const created: Array<[string, string | null]> = [];
+  start((postId, previous) => created.push([postId, previous]));
   debug.received("1", `${GRAPHQL}/Viewer`, {
     data: { viewer: { user_results: { result: { core: { screen_name: "LevelsIO" } } } } },
   });
@@ -157,7 +157,25 @@ it("sends the posts in GraphQL responses the window received, base64 bodies too,
     data: { notetweet_create: { tweet_results: { result: { ...result, rest_id: "10" } } } },
   });
   debug.finished("5");
-  await vi.waitFor(() => expect(created).toEqual(["9", "10"]));
+  // An edit's create names the version it replaces, so it is told from any other post.
+  debug.emit("message", {}, "Network.requestWillBeSent", {
+    requestId: "6",
+    request: {
+      url: `${GRAPHQL}/CreateTweet`,
+      postData: JSON.stringify({ variables: { edit_options: { previous_tweet_id: "9" } } }),
+    },
+  });
+  debug.received("6", `${GRAPHQL}/CreateTweet`, {
+    data: { create_tweet: { tweet_results: { result: { ...result, rest_id: "11" } } } },
+  });
+  debug.finished("6");
+  await vi.waitFor(() =>
+    expect(created).toEqual([
+      ["9", null],
+      ["10", null],
+      ["11", "9"],
+    ]),
+  );
 });
 
 it("hands a Space recording's captions from X's chat lines to the screens only, never the service", async () => {

@@ -225,9 +225,13 @@ it("answers X's create with its edit window, and an edit as the next version in 
     5,
     false,
   ]);
-  // X's Edit post opens X's composer with the post's text, its Post reading Update.
-  expect(editRow(first.postId)?.go).toBe(`/compose/post?edit=${first.postId}`);
-  expect(route(state, editRow(first.postId)!.go!, "forYou").render([])).toMatch(
+  // X's Edit post opens X's composer with the post in the route's state (mock X's page asks for
+  // it as `edit`): the post's text, and its Post reading Update.
+  expect(editRow(first.postId)).toMatchObject({
+    go: "/compose/post",
+    state: { previousTweetId: first.postId },
+  });
+  expect(route(state, `/compose/post?edit=${first.postId}`, "forYou").render([])).toMatch(
     new RegExp(`first take.*data-edit="${first.postId}">Update<`),
   );
 

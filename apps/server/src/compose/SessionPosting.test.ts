@@ -1,8 +1,9 @@
 import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import { expect, it } from "@effect/vitest";
-import type { DesktopCommand } from "@xtend/contracts";
+import { type DesktopCommand, DesktopUnavailableError } from "@xtend/contracts";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
+import * as TestClock from "effect/testing/TestClock";
 
 import * as Sqlite from "../persistence/Sqlite.ts";
 import * as SettingsStore from "../settings/SettingsStore.ts";
@@ -11,6 +12,8 @@ import * as SessionPosting from "./SessionPosting.ts";
 import { desktopStub } from "./testStubs.ts";
 
 const asked: Array<DesktopCommand> = [];
+// How the desktop answers the next command: X's new id, or why it did not.
+const desktop = { answer: "ok" as "ok" | DesktopUnavailableError["reason"] };
 const layerTest = SessionPosting.layer.pipe(
   Layer.provideMerge(SettingsStore.layer),
   Layer.provideMerge(
@@ -19,7 +22,9 @@ const layerTest = SessionPosting.layer.pipe(
       NodeCrypto.layer,
       TokenCipher.layerTest,
       desktopStub(asked, (command) =>
-        Effect.succeed({ type: command.type, postId: "702" } as never),
+        desktop.answer === "ok"
+          ? Effect.succeed({ type: command.type, postId: "702" } as never)
+          : Effect.fail(new DesktopUnavailableError({ reason: desktop.answer, detail: "test" })),
       ),
     ),
   ),
@@ -43,4 +48,29 @@ it.effect("edits through the session only while session actions are on, styles a
       { type: "sessionEditPost", postId: "701", text: "fixed the typo", styles: bold },
     ]);
   }).pipe(Effect.provide(layerTest)),
+);
+
+it.effect(
+  "tells an edit X may have saved (Update pressed, no answer) from one the desktop never pressed",
+  () =>
+    Effect.gen(function* () {
+      const session = yield* SessionPosting.SessionPosting;
+      yield* (yield* SettingsStore.SettingsStore).update({ sessionPostingEnabled: true });
+      const edit = { postId: "701", text: "fixed the typo" };
+      const outcome = (answer: typeof desktop.answer) =>
+        Effect.suspend(() => {
+          desktop.answer = answer;
+          return session.edit(edit).pipe(
+            Effect.map(({ postId }) => postId),
+            Effect.catchTags({ ComposeError: () => Effect.succeed("refused") }),
+          );
+        });
+      // Each a separate click, past the human pace's gap.
+      const results = [];
+      for (const answer of ["failed", "timeout", "not_attempted", "no_desktop"] as const) {
+        results.push(yield* outcome(answer));
+        yield* TestClock.adjust("9 seconds");
+      }
+      expect(results).toEqual([null, null, "refused", "refused"]);
+    }).pipe(Effect.provide(layerTest)),
 );

@@ -59,9 +59,11 @@ export class SessionPosting extends Context.Service<
     /**
      * Edits the user's own post through X's own Edit post in the session view, for their click on
      * Update, at the same human pace. The session is the only lane: treg's X post create (X's
-     * POST /2/tweets) takes no edit, so nothing here falls back to the API.
+     * POST /2/tweets) takes no edit. An error changed nothing; a null id may have (see the rpc).
      */
-    readonly edit: (input: PostEdit) => Effect.Effect<{ readonly postId: string }, ComposeError>;
+    readonly edit: (
+      input: PostEdit,
+    ) => Effect.Effect<{ readonly postId: string | null }, ComposeError>;
     /** Presses X's own like on the post in the session view, at human pace. */
     readonly like: (postId: string) => Effect.Effect<void, ComposeError | DesktopUnavailableError>;
     /** Sends a DM through X's own message composer in the session view, at the same human pace. */
@@ -149,15 +151,24 @@ const make = Effect.gen(function* () {
       const refused = yield* humanPace;
       if (refused !== null)
         return yield* new ComposeError({ operation: "sessionEditPost", detail: refused });
-      const { postId } = yield* desktop.request({
-        type: "sessionEditPost",
-        postId: input.postId,
-        text: input.text,
-        ...(input.styles === undefined || input.styles.length === 0
-          ? {}
-          : { styles: input.styles }),
-      });
-      return { postId };
+      return yield* desktop
+        .request({
+          type: "sessionEditPost",
+          postId: input.postId,
+          text: input.text,
+          ...(input.styles === undefined || input.styles.length === 0
+            ? {}
+            : { styles: input.styles }),
+        })
+        .pipe(
+          Effect.map(({ postId }): { readonly postId: string | null } => ({ postId })),
+          // Past X's Update with no answer seen, X may have saved it: no error, which would invite
+          // a second edit, but no id either.
+          Effect.catchTags({
+            DesktopUnavailableError: (e) =>
+              notAttempted(e) ? Effect.fail(e) : Effect.succeed({ postId: null }),
+          }),
+        );
     },
     Effect.mapError(fail("sessionEditPost")),
   );

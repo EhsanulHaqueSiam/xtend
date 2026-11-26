@@ -21,6 +21,8 @@ interface Step {
   readonly community?: { readonly id: string; readonly label: string };
   /** X's own page for the row, through its router; `replace` keeps the history entry. */
   readonly go?: string;
+  /** The route state X's router pushes with `go`, kept as X's history keeps it ({ key, state }). */
+  readonly state?: Readonly<Record<string, string>>;
   readonly replace?: string;
   readonly toast?: { readonly text: string; readonly undo?: Step };
   readonly dialog?: Dialog;
@@ -210,7 +212,7 @@ export function menuRows(state: MockState, spec: string): ReadonlyArray<Row> {
       },
     };
     // X's Edit post (Premium): on the latest version, with edits left, inside X's hour. X opens
-    // its composer on /compose/post with the post in the route's state; mock X names it in the URL.
+    // its composer on /compose/post with the post in the route's state.
     const editable =
       p.edits.at(-1) === id &&
       (p.editsRemaining ?? 0) > 0 &&
@@ -235,7 +237,14 @@ export function menuRows(state: MockState, spec: string): ReadonlyArray<Row> {
           },
         },
         ...(editable
-          ? [{ label: "Edit post", testid: "edit", go: `/compose/post?edit=${id}` }]
+          ? [
+              {
+                label: "Edit post",
+                testid: "edit",
+                go: "/compose/post",
+                state: { previousTweetId: id },
+              },
+            ]
           : []),
         {
           label: "Pin to your profile",

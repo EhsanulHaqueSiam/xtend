@@ -78,8 +78,9 @@ italic on X show that way in Xtend.
 hour after posting, up to 5 edits. It turns the post's text into an editor in place, with how many
 edits X has left and until when; **Update** goes through X's own Edit post in your session, free,
 and the post then shows X's new version with "Last edited". If X refuses, the editor keeps your
-text. X's API cannot edit, so it needs session actions on in the desktop app, as X's other rows
-in the "..." do. `xtend edit <post-id> "<text>"` does the same from a terminal.
+text; if X's answer never comes, it says X may have saved the edit, so check the post before
+editing again. X's API cannot edit, so it needs session actions on in the desktop app, as X's other rows
+in the "..." do.
 
 A post with a Space opens it beside the screen you are reading, in the right column: its title,
 host, speakers, listeners and the people you track among them (your leads with their stage, and

@@ -1223,6 +1223,23 @@ it("puts the user's new reply under the post it answers, a new post on top of Ho
   expect(at(showWaiting(state, "following").lists, "following")).toEqual(["11", "4", "3"]);
   expect(at(state.lists, "post:1")).toEqual(["1", "12", "2"]);
   expect(state.posts.get("1")?.metrics.replies).toBe(1);
+  // An answer X sent before the edit, landing after it, lists the newest version in its place.
+  state = mergeBatch(
+    state,
+    batch("HomeLatestTimeline", [
+      post("10", "2026-10-31T01:00:00Z"),
+      post("3", "2026-10-30T02:00:00Z"),
+    ]),
+  );
+  state = mergeBatch(
+    state,
+    batch("TweetDetail", [...thread, { ...reply, edits: ["9"] }], {
+      key: "1",
+      order: ["1", "9", "2"],
+    }),
+  );
+  expect(at(showWaiting(state, "following").lists, "following")).toEqual(["11", "4", "3"]);
+  expect(at(state.lists, "post:1")).toEqual(["1", "12", "2"]);
 });
 
 it("keeps dismissed trends hidden across stale captures of their tab, reconciles removal, and restores on Undo", () => {

@@ -64,9 +64,10 @@ export const DesktopCommand = Schema.Union([
 export type DesktopCommand = typeof DesktopCommand.Type;
 
 /**
- * How long the desktop may spend on a command, counted from when it receives it. It gives up by
- * then and says why; the service waits a little longer for that answer. A session post loads X's
- * composer, uploads its media (a video can take minutes) and waits for X to confirm.
+ * How long the desktop may spend on a command, counted from when it receives it and never past the
+ * request's `deadline`. It gives up by then and says why; the service waits a little longer for
+ * that answer. A session post loads X's composer, uploads its media (a video can take minutes) and
+ * waits for X to confirm.
  */
 export const DESKTOP_COMMAND_LIMIT_MS = {
   sessionScreenshot: 20_000,
@@ -101,6 +102,11 @@ export type DesktopCommandResultFor<C extends DesktopCommand> = Extract<
 export const DesktopCommandRequest = Schema.Struct({
   id: Schema.String,
   command: DesktopCommand,
+  /**
+   * When the service stops waiting, less its answer margin (epoch ms): the desktop reads its
+   * commands one at a time, so one may reach it late, and it must give up by then all the same.
+   */
+  deadline: Schema.optional(Schema.Number),
 });
 export type DesktopCommandRequest = typeof DesktopCommandRequest.Type;
 
@@ -275,6 +281,11 @@ export interface EnginePost extends ObservedPost {
   readonly edits: ReadonlyArray<string>;
   readonly editsRemaining: number | null;
   readonly editableUntil: string | null;
+  /**
+   * The text X's Edit post opens its composer with, where it differs from `text` and its `styles`
+   * (a link expanded, a trailing card link kept); absent while X allows no edit.
+   */
+  readonly edit?: { readonly text: string; readonly styles: ReadonlyArray<TextStyle> };
   /** X's "Made with AI" label: the media was declared or detected as AI-generated. */
   readonly aiGenerated: boolean;
   /** The bold and italic X draws on the shown `text` (a long post's `richtext_tags`); absent when none. */

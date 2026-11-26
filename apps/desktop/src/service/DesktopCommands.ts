@@ -58,10 +58,39 @@ export interface DesktopCommandsOptions {
   readonly serviceToken: string;
   /** Loads a URL in the session view; only x.com hosts are honoured. */
   readonly navigate: (url: string) => void;
-  /** Resolves with the id of the next post the session creates (from the CreateTweet response). */
-  readonly nextCreatedPost: () => Promise<string>;
+  /** The id of the next post the session creates, as `createdPosts().next` hands it over. */
+  readonly nextCreatedPost: CreatedPosts["next"];
   readonly log: (message: string, detail?: unknown) => void;
 }
+
+/**
+ * X's create answers (CreateTweet, CreateNoteTweet), each handed to the command waiting for that
+ * one: a new post (`previous` null), or an edit of the post `previous`. A command that ends stops
+ * listening through `signal`, so no answer of X's reaches it later.
+ */
+export function createdPosts() {
+  const waiting = new Set<{
+    readonly previous: string | null;
+    readonly take: (id: string) => void;
+  }>();
+  return {
+    next: (previous: string | null, signal: AbortSignal) =>
+      new Promise<string>((take) => {
+        if (signal.aborted) return;
+        const listener = { previous, take };
+        waiting.add(listener);
+        signal.addEventListener("abort", () => waiting.delete(listener), { once: true });
+      }),
+    created: (postId: string, previous: string | null) => {
+      for (const listener of waiting)
+        if (listener.previous === previous) {
+          waiting.delete(listener);
+          listener.take(postId);
+        }
+    },
+  };
+}
+type CreatedPosts = ReturnType<typeof createdPosts>;
 
 const makeClient = RpcClient.make(WsRpcGroup);
 type Client = Effect.Success<typeof makeClient>;
@@ -108,7 +137,7 @@ export function attachDesktopCommands(
     yield* current[Desktop_METHODS.subscribeCommands]({}).pipe(
       Stream.runForEach((request) =>
         Effect.promise(() =>
-          run(request.command).then(
+          run(request.command, request.deadline).then(
             (result) => ({ id: request.id, result, error: null }),
             (error: unknown) => {
               options.log("desktop command failed", {
@@ -213,8 +242,8 @@ interface CommandRunnerDeps {
   readonly contents: Pick<Electron.WebContents, "loadURL">;
   readonly cdp: Cdp;
   readonly navigate: (url: string) => void;
-  readonly nextCreatedPost: () => Promise<string>;
-  /** The service's setting, asked again before every post. */
+  readonly nextCreatedPost: CreatedPosts["next"];
+  /** The service's setting, asked again before every post, and again before an edit's Update. */
   readonly sessionPostingEnabled: () => Promise<boolean>;
 }
 
@@ -222,7 +251,7 @@ interface CommandRunnerDeps {
  * Runs the service's commands in the session view one at a time, across reconnects too: a post
  * whose socket dropped mid-flow still owns X's composer until it ends, and the next command waits
  * for it. Each command gets DESKTOP_COMMAND_LIMIT_MS from when it arrived, waiting included, and
- * one that has none left is refused before it touches the page: the service has given up on it.
+ * no later than the service's deadline; one with none left is refused before it touches the page.
  */
 export function commandRunner(deps: CommandRunnerDeps) {
   let busy: Promise<unknown> = Promise.resolve();
@@ -265,6 +294,7 @@ export function commandRunner(deps: CommandRunnerDeps) {
           command,
           deps.nextCreatedPost,
           deadline,
+          deps.sessionPostingEnabled,
         );
         return { type: "sessionEditPost", postId };
       }
@@ -295,8 +325,9 @@ export function commandRunner(deps: CommandRunnerDeps) {
     }
   };
 
-  return (command: DesktopCommand): Promise<DesktopCommandResult> => {
-    const deadline = Date.now() + DESKTOP_COMMAND_LIMIT_MS[command.type];
+  // `by` is the service's own deadline: a command read late (behind a long one) still ends by then.
+  return (command: DesktopCommand, by = Infinity): Promise<DesktopCommandResult> => {
+    const deadline = Math.min(by, Date.now() + DESKTOP_COMMAND_LIMIT_MS[command.type]);
     const result = busy.then(() => run(command, deadline));
     busy = result.catch(() => {});
     return result;
@@ -883,7 +914,7 @@ export async function postThroughComposer(
   contents: Pick<Electron.WebContents, "loadURL">,
   cdp: Cdp,
   command: Extract<DesktopCommand, { type: "sessionPost" }>,
-  nextCreatedPost: () => Promise<string>,
+  nextCreatedPost: CreatedPosts["next"],
   deadline: number,
 ): Promise<string> {
   const step = (ms: number) => Math.min(Date.now() + ms, deadline);
@@ -908,6 +939,8 @@ export async function postThroughComposer(
     media: false,
     text: false,
   };
+  // X's answer for this post only, and none once this command ends.
+  const listening = new AbortController();
   const { replySettings, poll } = command;
   const reply =
     replySettings === undefined || replySettings === "everyone"
@@ -936,8 +969,8 @@ export async function postThroughComposer(
       touched.media = true;
       await cdp("DOM.setFileInputFiles", { nodeId: input, files: command.mediaPaths });
     }
-    // Listening before Post; the button stays disabled while uploads run.
-    const created = nextCreatedPost();
+    // Listening before Post, for a new post only; the button stays disabled while uploads run.
+    const created = nextCreatedPost(null, listening.signal);
     const post = 'button[data-testid="tweetButton"]';
     await waitForNode(cdp, post, deadline, enabled);
     // Checked again at the press: still closed, and X still names the user's setting.
@@ -950,10 +983,15 @@ export async function postThroughComposer(
     return { button: await waitForNode(cdp, post, deadline, enabled), created };
   };
   const { button, created } = await ready().catch(async (error: unknown) => {
+    listening.abort();
     throw await takeBack(cdp, touched, error);
   });
-  await click(cdp, button);
-  return until(created, step(CREATED_TIMEOUT_MS), "x.com did not confirm the post");
+  try {
+    await click(cdp, button);
+    return await until(created, step(CREATED_TIMEOUT_MS), "x.com did not confirm the post");
+  } finally {
+    listening.abort();
+  }
 }
 
 /**
@@ -993,20 +1031,87 @@ export async function likeOnPage(
   );
 }
 
+// Xtend's engine scripts open X's menus one at a time behind this queue in X's page (state/x.ts
+// xMenuRun). An edit holds it throughout, so none of them opens another menu or presses a row.
+const HOLD_MENUS = `(async () => {
+  const previous = window.__xtendMenuQueue;
+  let release;
+  const held = new Promise((resolve) => { release = resolve; });
+  window.__xtendMenuQueue = held;
+  window.__xtendEditRelease = () => { release(); if (window.__xtendMenuQueue === held) delete window.__xtendMenuQueue; };
+  if (previous) await previous;
+  return true;
+})()`;
+const RELEASE_MENUS = "window.__xtendEditRelease?.(), true";
+
+// X's Edit post row in the menu X's caret (`this`) opened, found as Xtend's engine scripts find a
+// caret's menu (state/x.ts menuFor): the one its aria-controls names, else the only one open.
+// "none" when that menu has rows but no Edit post; null until X has drawn it.
+const OWN_EDIT_ROW = `function (row) {
+  if (this.getAttribute("aria-expanded") !== "true") return null;
+  const controlled = (this.getAttribute("aria-controls") ?? "").split(" ").map((id) => document.getElementById(id)?.closest('[role="menu"]')).find(Boolean);
+  const menus = document.querySelectorAll('[role="menu"]');
+  const menu = controlled ?? (menus.length === 1 ? menus[0] : null);
+  if (!menu?.querySelector('[role="menuitem"]')) return null;
+  return menu.querySelector(row) ?? "none";
+}`;
+
+// The post X's composer edits: X's Edit post row opens /compose/post with it in the route's state
+// ({ previousTweetId }, which X's history keeps under `state`), and X's Update sends that id.
+const EDITING = `location.pathname === "/compose/post" ? (history.state?.state?.previousTweetId ?? null) : null`;
+
+/** X's Edit post row in the menu `caret` (a page object) opened; fails at `deadline`. */
+async function ownEditRow(cdp: Cdp, caret: string, deadline: number): Promise<number> {
+  const { result } = (await cdp("Runtime.callFunctionOn", {
+    objectId: caret,
+    functionDeclaration: OWN_EDIT_ROW,
+    arguments: [{ value: X_EDIT.row }],
+    returnByValue: false,
+  })) as { result: { objectId?: string; value?: unknown } };
+  if (result.objectId !== undefined)
+    return ((await cdp("DOM.requestNode", { objectId: result.objectId })) as { nodeId: number })
+      .nodeId;
+  if (result.value === "none" || Date.now() >= deadline)
+    throw new Error("X offers no Edit post on it now (an hour after posting, 5 edits)");
+  await sleep(POLL_MS);
+  return ownEditRow(cdp, caret, deadline);
+}
+
 /**
- * Edits the user's own post as they would: X's "..." on its page, X's Edit post row, X's text
- * replaced in X's composer in edit mode (styles as sessionPost types them), X's Update, and X's
- * confirm before the last edit, which the user's editor named. Before Update nothing changes.
+ * Edits the user's own post as they would: X's "..." on its page, the Edit post row of the menu
+ * that press opened, X's text replaced in X's composer (styles as sessionPost types them), Update,
+ * and X's confirm before the last edit. Each press first checks the time, the setting (`allowed`)
+ * and that X's composer edits this post; before Update a failure changes nothing.
  */
 export async function editThroughComposer(
   contents: Pick<Electron.WebContents, "loadURL">,
   cdp: Cdp,
   command: Extract<DesktopCommand, { type: "sessionEditPost" }>,
-  nextCreatedPost: () => Promise<string>,
+  nextCreatedPost: CreatedPosts["next"],
   deadline: number,
+  allowed: () => Promise<boolean>,
 ): Promise<string> {
   const step = (ms: number) => Math.min(Date.now() + ms, deadline);
   const id = command.postId;
+  const evaluate = async (expression: string, awaitPromise = false) =>
+    (
+      (await cdp("Runtime.evaluate", { expression, returnByValue: true, awaitPromise })) as {
+        result: { value: unknown };
+      }
+    ).result.value;
+  const editingIt = async () => {
+    if ((await evaluate(EDITING)) !== id)
+      throw new Error("x.com's composer is not editing this post");
+  };
+  const mayPress = async () => {
+    if (Date.now() >= deadline) throw new Error("the edit ran out of its time");
+    if (!(await allowed())) throw new Error("session posting is off in Settings");
+    await editingIt();
+  };
+  const unchanged = (error: unknown) =>
+    new NotAttempted(
+      `${error instanceof Error ? error.message : String(error)}; the post was not changed`,
+    );
   // The post's own article: its time links to it (to its history once edited). A post quoting it
   // links there too, but comes after it on the post's page, so the first match is the post.
   const caret = `article:has(a[href$="/status/${id}"] time, a[href$="/status/${id}/history"] time) ${X_EDIT.caret}`;
@@ -1016,6 +1121,7 @@ export async function editThroughComposer(
       deadline,
       "x.com did not load the post",
     );
+    await until(evaluate(HOLD_MENUS, true), deadline, "Xtend kept X's menus busy");
     const shownBy = step(COMPOSER_TIMEOUT_MS);
     let own = (await query(cdp, caret))[0];
     while (own === undefined) {
@@ -1023,8 +1129,9 @@ export async function editThroughComposer(
       await sleep(POLL_MS);
       own = (await query(cdp, caret))[0];
     }
+    const ownObject = await objectOf(cdp, own);
     await click(cdp, own);
-    const row = await waitForNode(cdp, X_EDIT.row, step(CONTROL_TIMEOUT_MS)).catch(async () => {
+    const row = await ownEditRow(cdp, ownObject, step(CONTROL_TIMEOUT_MS)).catch(async (error) => {
       // X's menu, left open, would take the engine's next press.
       for (const type of ["rawKeyDown", "keyUp"] as const)
         await cdp("Input.dispatchKeyEvent", {
@@ -1033,12 +1140,13 @@ export async function editThroughComposer(
           code: "Escape",
           windowsVirtualKeyCode: 27,
         });
-      throw new Error("X offers no Edit post on it now (an hour after posting, 5 edits)");
+      throw error;
     });
     await click(cdp, row);
     await waitForText(cdp, X_EDIT.button, X_EDIT.word, step(COMPOSER_TIMEOUT_MS)).catch(() => {
       throw new Error("x.com's composer did not open the post to edit");
     });
+    await editingIt();
     const box = await clearBox(cdp);
     await typeText(cdp, box, command.text, command.styles ?? []);
     // Checked with no styles too: text typed after what X left would update the post with both.
@@ -1052,29 +1160,40 @@ export async function editThroughComposer(
     );
     if ((await textOf(cdp, button)) !== X_EDIT.word)
       throw new Error("x.com's composer left edit mode");
+    await mayPress();
     return button;
   };
-  const button = await ready().catch((error: unknown) => {
-    const said = error instanceof Error ? error.message : String(error);
-    throw new NotAttempted(`${said}; the post was not changed`);
-  });
-  const got: { id?: string } = {};
-  void nextCreatedPost().then((created) => {
-    got.id = created;
-  });
-  await click(cdp, button);
-  const confirmBy = step(CREATED_TIMEOUT_MS);
-  let confirmed = false;
-  while (got.id === undefined) {
-    if (Date.now() >= confirmBy) throw new Error("x.com did not confirm the edit");
-    const [sheet] = confirmed ? [] : await query(cdp, X_EDIT.lastEditConfirm);
-    if (sheet !== undefined && (await textOf(cdp, sheet)) === X_EDIT.word) {
-      await click(cdp, sheet);
-      confirmed = true;
+  // X's answer to an edit of this post only, and none once this command ends.
+  const listening = new AbortController();
+  try {
+    const button = await ready().catch((error: unknown) => {
+      throw unchanged(error);
+    });
+    const got: { id?: string } = {};
+    void nextCreatedPost(id, listening.signal).then((made) => {
+      got.id = made;
+    });
+    await click(cdp, button);
+    const confirmBy = step(CREATED_TIMEOUT_MS);
+    let confirmed = false;
+    while (got.id === undefined) {
+      if (Date.now() >= confirmBy) throw new Error("x.com did not confirm the edit");
+      const [sheet] = confirmed ? [] : await query(cdp, X_EDIT.lastEditConfirm);
+      if (sheet !== undefined && (await textOf(cdp, sheet)) === X_EDIT.word) {
+        // X sends a last edit only from this confirm, so a refusal here changes nothing.
+        await mayPress().catch((error: unknown) => {
+          throw unchanged(error);
+        });
+        await click(cdp, sheet);
+        confirmed = true;
+      }
+      await sleep(POLL_MS);
     }
-    await sleep(POLL_MS);
+    return got.id;
+  } finally {
+    listening.abort();
+    await evaluate(RELEASE_MENUS).catch(() => {});
   }
-  return got.id;
 }
 
 /**

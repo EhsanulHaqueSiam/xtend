@@ -402,6 +402,8 @@ export interface EngineState {
   readonly pinnedLists: ReadonlySet<string> | null;
   /** X's people modules (Who to follow) by id; a list names one where X put it among the posts. */
   readonly modules: ReadonlyMap<string, EngineModule>;
+  /** The newest version X answered for each earlier one of an edited post (see `newestVersions`). */
+  readonly latest: ReadonlyMap<string, string>;
   /** Post and module ids per surface, in X's order. */
   readonly lists: PerSurface<string>;
   /** Newer posts X fetched for a list's top; they wait behind a pill instead of shifting the list. */
@@ -592,6 +594,7 @@ export const emptyEngine: EngineState = {
   listPins: new Map(),
   pinnedLists: null,
   modules: new Map(),
+  latest: new Map(),
   lists: NONE,
   waiting: NONE,
   nextTop: NONE,
@@ -640,6 +643,18 @@ export const emptyEngine: EngineState = {
   spaceStats: new Map(),
   spacesUnavailable: new Set(),
 };
+
+/** `known` with what `posts` add: each edited post's earlier versions, by the newest X sent. */
+function newestVersions(
+  known: ReadonlyMap<string, string>,
+  posts: ReadonlyArray<EnginePost>,
+): ReadonlyMap<string, string> {
+  const newest = posts.filter((p) => p.edits.length > 1 && p.edits.at(-1) === p.postId);
+  if (newest.length === 0) return known;
+  const next = new Map(known);
+  for (const p of newest) for (const id of p.edits) if (id !== p.postId) next.set(id, p.postId);
+  return next;
+}
 
 /** A surface's entries; a tab X has not sent yet has none. */
 export const at = <A>(per: PerSurface<A>, surface: AnySurface): ReadonlyArray<A> =>
@@ -768,6 +783,7 @@ export function mergeBatch(state: EngineState, batch: EngineBatch): EngineState 
   const merged: EngineState = {
     ...state,
     posts,
+    latest: newestVersions(state.latest, batch.posts),
     modules:
       batch.modules.length === 0
         ? state.modules
@@ -1410,10 +1426,14 @@ function mergeInto(state: EngineState, batch: EngineBatch, surface: AnySurface):
   const quoted = new Set(batch.posts.flatMap((p) => (p.quotedId === null ? [] : [p.quotedId])));
   const sent = new Set([...batch.posts.map((p) => p.postId), ...batch.modules.map((m) => m.id)]);
   const known = new Set([...list, ...at(state.waiting, surface)]);
-  const order =
-    batch.order.length > 0
+  // An edit takes its earlier versions' place: an answer still listing one (sent before the edit,
+  // or from X's cache) lists the newest instead.
+  const order = unique(
+    (batch.order.length > 0
       ? batch.order.filter((id) => sent.has(id))
-      : batch.posts.map((p) => p.postId).filter((id) => !quoted.has(id));
+      : batch.posts.map((p) => p.postId).filter((id) => !quoted.has(id))
+    ).map((id) => state.latest.get(id) ?? id),
+  );
   const fresh = order.filter((id) => !known.has(id));
   const freshPosts = fresh.filter((id) => posts.has(id));
   const top = list.map((id) => posts.get(id)).find((p) => p !== undefined);
