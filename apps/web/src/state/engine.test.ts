@@ -50,6 +50,7 @@ import {
   sawAnalyticsRange,
   showWaiting,
   surfacesOf,
+  threadOf,
   userByHandle,
   youFollow,
 } from "./engine";
@@ -1270,6 +1271,8 @@ it("puts the user's new reply under the post it answers, a new post on top of Ho
   );
   expect(at(state.lists, "following")).toEqual(shown.map((id) => (id === "13" ? "14" : id)));
   expect([state.latest.get("14"), state.latest.get("10")]).toEqual([undefined, "14"]);
+  // The original's own page shows the newest version too.
+  expect(threadOf(state, postSurface("10", "Relevance"), "10").focal?.postId).toBe("14");
   // An answer that tells nothing new keeps the same versions.
   expect(
     mergeBatch(state, batch("TweetDetail", [{ ...quote, postId: "11", edits: ["10", "11"] }]))

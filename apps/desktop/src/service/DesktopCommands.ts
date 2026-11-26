@@ -111,7 +111,7 @@ export function attachDesktopCommands(
     yield* current[Desktop_METHODS.subscribeCommands]({}).pipe(
       Stream.runForEach((request) =>
         Effect.promise(() =>
-          run(request.command, request.deadline).then(
+          run(request.command).then(
             (result) => ({ id: request.id, result, error: null }),
             (error: unknown) => {
               options.log("desktop command failed", {
@@ -219,7 +219,7 @@ interface CommandRunnerDeps {
   readonly nextCreatedPost: () => Promise<string>;
   /** Fed by the capture; without it an edit cannot tell its answer and ends unconfirmed. */
   readonly editCreates?: EditCreates;
-  /** The service's setting, asked again before every post, and again before an edit's Update. */
+  /** The service's setting, asked again before every post. */
   readonly sessionPostingEnabled: () => Promise<boolean>;
 }
 
@@ -227,7 +227,7 @@ interface CommandRunnerDeps {
  * Runs the service's commands in the session view one at a time, across reconnects too: a post
  * whose socket dropped mid-flow still owns X's composer until it ends, and the next command waits
  * for it. Each command gets DESKTOP_COMMAND_LIMIT_MS from when it arrived, waiting included, and
- * no later than the service's deadline; one with none left is refused before it touches the page.
+ * one that has none left is refused before it touches the page: the service has given up on it.
  */
 export function commandRunner(deps: CommandRunnerDeps) {
   let busy: Promise<unknown> = Promise.resolve();
@@ -260,7 +260,15 @@ export function commandRunner(deps: CommandRunnerDeps) {
         return { type: "sessionPost", postId };
       }
       case "sessionEditPost": {
-        const enabled = await deps.sessionPostingEnabled().catch((error: unknown) => {
+        // The service's own deadline too: an edit that reached the desktop late never starts.
+        const by = Math.min(deadline, command.deadline);
+        if (Date.now() >= by)
+          throw new NotAttempted("the edit waited out its time behind another command");
+        const enabled = await until(
+          deps.sessionPostingEnabled(),
+          by,
+          "Settings did not answer",
+        ).catch((error: unknown) => {
           throw untouched(error);
         });
         if (!enabled) throw new NotAttempted("session posting is off in Settings");
@@ -269,7 +277,7 @@ export function commandRunner(deps: CommandRunnerDeps) {
           deps.cdp,
           command,
           deps.editCreates ?? editCreates(),
-          deadline,
+          by,
           deps.sessionPostingEnabled,
         );
         return { type: "sessionEditPost", postId };
@@ -301,9 +309,8 @@ export function commandRunner(deps: CommandRunnerDeps) {
     }
   };
 
-  // `by` is the service's own deadline: a command read late (behind a long one) still ends by then.
-  return (command: DesktopCommand, by = Infinity): Promise<DesktopCommandResult> => {
-    const deadline = Math.min(by, Date.now() + DESKTOP_COMMAND_LIMIT_MS[command.type]);
+  return (command: DesktopCommand): Promise<DesktopCommandResult> => {
+    const deadline = Date.now() + DESKTOP_COMMAND_LIMIT_MS[command.type];
     const result = busy.then(() => run(command, deadline));
     busy = result.catch(() => {});
     return result;
@@ -1051,53 +1058,26 @@ const LANDS_ON = `function (x, y) {
 }`;
 
 /**
- * The edit's press of X's Update or its confirm, every CDP wait bounded by `deadline`. Before the
- * press it is refused untouched unless the node is what it lands on in time. Once the press may
- * have reached X its outcome is uncertain; a gesture that cannot finish is released best-effort
- * and X's page (`page`) loaded again, so no press stays down and the next command starts clean.
+ * Where the edit presses X's Update or its confirm: refused untouched unless the node is what a
+ * press at its middle lands on. `cdp` is the edit's own, which ends every call by its deadline.
  */
-async function editPress(
-  contents: Pick<Electron.WebContents, "loadURL">,
-  cdp: Cdp,
-  nodeId: number,
-  deadline: number,
-  page: string,
-): Promise<void> {
-  const late = "x.com's page did not answer before the command's deadline";
-  const { x, y } = await (async () => {
-    const { model } = (await until(cdp("DOM.getBoxModel", { nodeId }), deadline, late)) as {
+async function aimEdit(cdp: Cdp, nodeId: number): Promise<{ x: number; y: number }> {
+  try {
+    const { model } = (await cdp("DOM.getBoxModel", { nodeId })) as {
       model: { content: Array<number> };
     };
     const [x1, y1, , , x2, y2] = model.content as [number, number, number, number, number, number];
     const at = { x: (x1 + x2) / 2, y: (y1 + y2) / 2 };
-    const objectId = await until(objectOf(cdp, nodeId), deadline, late);
-    const { result } = (await until(
-      cdp("Runtime.callFunctionOn", {
-        objectId,
-        functionDeclaration: LANDS_ON,
-        arguments: [{ value: at.x }, { value: at.y }],
-        returnByValue: true,
-      }),
-      deadline,
-      late,
-    )) as { result: { value: unknown } };
+    const { result } = (await cdp("Runtime.callFunctionOn", {
+      objectId: await objectOf(cdp, nodeId),
+      functionDeclaration: LANDS_ON,
+      arguments: [{ value: at.x }, { value: at.y }],
+      returnByValue: true,
+    })) as { result: { value: unknown } };
     if (result.value !== true) throw new Error("x.com's control was covered or gone at the press");
-    if (Date.now() >= deadline) throw new Error(late);
     return at;
-  })().catch((error: unknown) => {
+  } catch (error) {
     throw untouched(error);
-  });
-  const mouse = (type: string) =>
-    cdp("Input.dispatchMouseEvent", { type, x, y, button: "left", clickCount: 1 });
-  try {
-    await until(mouse("mousePressed"), deadline, late);
-    await until(mouse("mouseReleased"), deadline, late);
-  } catch {
-    void mouse("mouseReleased").catch(() => {});
-    void contents.loadURL(page).catch(() => {});
-    throw new Error(
-      "x.com's press did not finish by the command's deadline; it may have gone through",
-    );
   }
 }
 
@@ -1209,7 +1189,7 @@ type EditCreates = ReturnType<typeof editCreates>;
  */
 export async function editThroughComposer(
   contents: Pick<Electron.WebContents, "loadURL">,
-  cdp: Cdp,
+  raw: Cdp,
   command: Extract<DesktopCommand, { type: "sessionEditPost" }>,
   creates: EditCreates,
   deadline: number,
@@ -1218,6 +1198,26 @@ export async function editThroughComposer(
   const step = (ms: number) => Math.min(Date.now() + ms, deadline);
   const id = command.postId;
   const page = `https://x.com/i/web/status/${id}`;
+  const late = "the edit ran out of its time";
+  // The edit's DevTools: every call ends by the deadline, and none starts or goes on after it, so
+  // a late answer never lets the next input go. The press still down, if any, is kept to release.
+  let down: { x: number; y: number } | null = null;
+  const cdp: Cdp = async (method, params) => {
+    if (Date.now() >= deadline) throw new Error(late);
+    if (method === "Input.dispatchMouseEvent" && params?.type === "mousePressed")
+      down = { x: Number(params.x), y: Number(params.y) };
+    const answer = await until(raw(method, params), deadline, late);
+    if (method === "Input.dispatchMouseEvent" && params?.type === "mouseReleased") down = null;
+    if (Date.now() >= deadline) throw new Error(late);
+    return answer;
+  };
+  // Once true, X's Update (or its confirm) may have reached X.
+  let pressed = false;
+  const press = async (at: { x: number; y: number }) => {
+    pressed = true;
+    for (const type of ["mousePressed", "mouseReleased"])
+      await cdp("Input.dispatchMouseEvent", { type, ...at, button: "left", clickCount: 1 });
+  };
   const evaluate = async (expression: string, awaitPromise = false) =>
     (
       (await cdp("Runtime.evaluate", { expression, returnByValue: true, awaitPromise })) as {
@@ -1230,7 +1230,6 @@ export async function editThroughComposer(
   };
   // Bounded by the deadline: an answer that comes after it must not let a press through.
   const mayPress = async () => {
-    const late = "the edit ran out of its time";
     if (Date.now() >= deadline) throw new Error(late);
     if (!(await until(allowed(), deadline, late)))
       throw new Error("session posting is off in Settings");
@@ -1294,7 +1293,7 @@ export async function editThroughComposer(
     });
     // X's create requests from the press on; only the one that is this edit counts.
     stop = creates.listen();
-    await editPress(contents, cdp, button, deadline, page);
+    await press(await aimEdit(cdp, button));
     const confirmBy = step(CREATED_TIMEOUT_MS);
     let confirmed = false;
     for (;;) {
@@ -1311,15 +1310,36 @@ export async function editThroughComposer(
         await mayPress().catch((error: unknown) => {
           throw unchanged(error);
         });
-        await editPress(contents, cdp, sheet, deadline, page);
+        await press(await aimEdit(cdp, sheet));
         confirmed = true;
       }
       await sleep(POLL_MS);
     }
+  } catch (error) {
+    // No press stays down, whatever stopped the edit.
+    if (down !== null) {
+      const at: { x: number; y: number } = down;
+      void raw("Input.dispatchMouseEvent", {
+        type: "mouseReleased",
+        ...at,
+        button: "left",
+        clickCount: 1,
+      }).catch(() => {});
+    }
+    if (Date.now() < deadline) throw error;
+    // Past the deadline: X's page loads again so the next command starts clean.
+    void contents.loadURL(page).catch(() => {});
+    if (pressed)
+      throw new Error(`${late} after its press; it may have gone through`, { cause: error });
+    throw error instanceof NotAttempted ? error : unchanged(error);
   } finally {
     stop();
-    // Bounded too: a page that no longer answers must not hold the queue.
-    await until(evaluate(RELEASE_MENUS), deadline, "late").catch(() => {});
+    // Sent even late, the wait bounded: a page that no longer answers must not hold the queue.
+    await until(
+      raw("Runtime.evaluate", { expression: RELEASE_MENUS, returnByValue: true }),
+      deadline,
+      late,
+    ).catch(() => {});
   }
 }
 

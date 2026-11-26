@@ -752,6 +752,8 @@ interface EditPage {
  * it, with the post's text. Update sends at once, or after X's confirm on the last edit.
  */
 function fakeEditPage(log: Array<string>, creates: ReturnType<typeof editCreates>, page: EditPage) {
+  // A page fresh from its load: no menu hold left by an earlier edit.
+  Reflect.deleteProperty(window, "__xtendMenuQueue");
   document.body.innerHTML = `
 <div id="react-root">
   <article><a href="/you/status/701"><time>1m</time></a><button data-testid="caret" data-of="701" aria-haspopup="menu" aria-expanded="false">…</button><div>first take</div></article>
@@ -813,30 +815,30 @@ function fakeEditPage(log: Array<string>, creates: ReturnType<typeof editCreates
   });
 }
 
-/** The edit on the fake page; `slowPress`: X's page acks the press on Update only past the deadline. */
-const edit = async (page: EditPage, allowed = async () => true, slowPress = false) => {
+type Cdp = (method: string, params?: Record<string, unknown>) => Promise<unknown>;
+
+/** A DevTools answer the edit gets only `ms` after it asked, on the faked clock. */
+const later = (answer: Promise<unknown>, ms: number) => {
+  const late = Promise.withResolvers<unknown>();
+  setTimeout(() => void answer.then(late.resolve), ms);
+  return late.promise;
+};
+
+/** The edit on the fake page; `wrap` plays a slow or silent DevTools over the page's own. */
+const edit = async (
+  page: EditPage,
+  { allowed = async () => true, wrap = (cdp: Cdp) => cdp } = {},
+) => {
   using _timers = fakeTimers({ now: T0 });
   const start = location.href;
   const log: Array<string> = [];
   const loads: Array<string> = [];
   const creates = editCreates();
   fakeEditPage(log, creates, page);
-  const dom = domCdp(log);
-  const cdp = async (method: string, params: Record<string, unknown> = {}) => {
-    const onUpdate =
-      params.type === "mousePressed" &&
-      document
-        .elementFromPoint(Number(params.x), Number(params.y))
-        ?.closest('[data-testid="tweetButton"]');
-    if (!slowPress || !onUpdate) return dom(method, params);
-    const ack = Promise.withResolvers<unknown>();
-    setTimeout(() => ack.resolve({}), 120_000);
-    return ack.promise;
-  };
   const editing = editThroughComposer(
     { loadURL: async (url: string) => void loads.push(url) },
-    cdp,
-    { type: "sessionEditPost", postId: "701", text: "second take" },
+    wrap(domCdp(log)),
+    { type: "sessionEditPost", postId: "701", text: "second take", deadline: T0 + 60_000 },
     creates,
     T0 + 60_000,
     allowed,
@@ -888,7 +890,7 @@ it("presses neither Update nor X's last-edit confirm unless X's composer is edit
   expect(moved.log).not.toContain("confirm Update");
 
   // Turned off while the edit ran (the runner asked before it started): asked again at the press.
-  const off = await edit({ editable: true, lastEdit: false }, async () => false);
+  const off = await edit({ editable: true, lastEdit: false }, { allowed: async () => false });
   expect(off.result).toMatchObject({
     message: "session posting is off in Settings; the post was not changed",
     notAttempted: true,
@@ -903,7 +905,7 @@ it("presses neither Update nor X's last-edit confirm unless X's composer is edit
     return answer.promise;
   };
   for (const late of [
-    await edit({ editable: true, lastEdit: false }, slow),
+    await edit({ editable: true, lastEdit: false }, { allowed: slow }),
     await edit({ editable: true, lastEdit: false, coveredUpdate: true }),
   ]) {
     expect(late.result).toMatchObject({ notAttempted: true });
@@ -911,12 +913,55 @@ it("presses neither Update nor X's last-edit confirm unless X's composer is edit
   }
 });
 
-it("finishes a press X's page acks only past the deadline, says it may have gone through, and loads X's page again", async () => {
-  const { result, loads } = await edit({ editable: true, lastEdit: false }, undefined, true);
-  expect([(result as Error).message, (result as { notAttempted?: boolean }).notAttempted]).toEqual([
-    "x.com's press did not finish by the command's deadline; it may have gone through",
-    undefined,
-  ]);
-  // The post's page, then once more after the press so no press stays down for the next command.
-  expect(loads).toEqual(["https://x.com/i/web/status/701", "https://x.com/i/web/status/701"]);
+it("ends by the deadline whatever DevTools does: a late answer lets no input go, a press that may have gone says so, and X's page loads again", async () => {
+  const PAGE = "https://x.com/i/web/status/701";
+  // The first box asked for (the post's "...") comes after the deadline: nothing is pressed.
+  let boxes = 0;
+  const lateBox = await edit(
+    { editable: true, lastEdit: false },
+    {
+      wrap: (cdp) => (method, params) =>
+        method === "DOM.getBoxModel" && boxes++ === 0
+          ? later(cdp(method, params), 70_000)
+          : cdp(method, params),
+    },
+  );
+  expect(lateBox.result).toMatchObject({ notAttempted: true });
+  expect(lateBox.log).toEqual([]);
+  expect(lateBox.loads).toEqual([PAGE, PAGE]);
+
+  // DevTools stops answering while the composer is open: refused untouched, the queue moves on.
+  let opened = false;
+  const silent = await edit(
+    { editable: true, lastEdit: false },
+    {
+      wrap: (cdp) => (method, params) => {
+        if (method === "DOM.getBoxModel" && document.querySelector('[role="dialog"]'))
+          opened = true;
+        return opened ? new Promise<unknown>(() => {}) : cdp(method, params);
+      },
+    },
+  );
+  expect(silent.result).toMatchObject({ notAttempted: true });
+  expect(silent.log).not.toContain("press Update");
+  expect(silent.loads).toEqual([PAGE, PAGE]);
+
+  // X's page acks the press on Update only after the deadline: it may have gone through.
+  const slow = await edit(
+    { editable: true, lastEdit: false },
+    {
+      wrap: (cdp) => (method, params) =>
+        params?.type === "mousePressed" &&
+        document
+          .elementFromPoint(Number(params.x), Number(params.y))
+          ?.closest('[data-testid="tweetButton"]')
+          ? later(cdp(method, params), 120_000)
+          : cdp(method, params),
+    },
+  );
+  expect([
+    (slow.result as Error).message,
+    (slow.result as { notAttempted?: boolean }).notAttempted,
+  ]).toEqual(["the edit ran out of its time after its press; it may have gone through", undefined]);
+  expect(slow.loads).toEqual([PAGE, PAGE]);
 });

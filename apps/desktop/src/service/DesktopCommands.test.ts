@@ -439,25 +439,6 @@ it("refuses a DM untouched when X's message composer never draws", async () => {
   expect(log).toEqual(["load https://x.com/messages/compose?recipient_id=42"]);
 });
 
-it("refuses a command untouched once the deadline the service sent with it has passed", async () => {
-  vi.useFakeTimers({ now: T0 });
-  const log: Array<string> = [];
-  const run = commandRunner({
-    ...composer(log),
-    navigate: (url) => log.push(`navigate ${url}`),
-    nextCreatedPost: async () => "1",
-    sessionPostingEnabled: async () => true,
-  });
-  // Read late, behind a long command: its own limit is not used up, the service's deadline is.
-  await expect(
-    run({ type: "sessionNavigate", url: "https://x.com/home" }, T0 - 1),
-  ).rejects.toMatchObject({
-    message: "sessionNavigate waited out its time behind another command",
-    notAttempted: true,
-  });
-  expect(log).toEqual([]);
-});
-
 it("takes as an edit's answer only X's answer to the one request that is that edit", async () => {
   const body = (text: string, previous: string) =>
     Promise.resolve(
@@ -503,4 +484,32 @@ it("takes as an edit's answer only X's answer to the one request that is that ed
   ).toBe("uncertain");
   // A body still being read: wait for it.
   expect(await outcome([["r1", new Promise<string>(() => {})]])).toBe(null);
+});
+
+it("refuses an edit untouched past the service's deadline for it, or when Settings answers only after it", async () => {
+  vi.useFakeTimers({ now: T0 });
+  const log: Array<string> = [];
+  const runner = (enabled: () => Promise<boolean>) =>
+    commandRunner({
+      ...composer(log),
+      navigate: () => {},
+      nextCreatedPost: async () => "1",
+      sessionPostingEnabled: enabled,
+    });
+  const edit = (deadline: number) =>
+    ({ type: "sessionEditPost", postId: "701", text: "fixed", deadline }) as const;
+  // Read late, behind a long command: its own limit is not used up, the service's deadline is.
+  await expect(runner(async () => true)(edit(T0 - 1))).rejects.toMatchObject({
+    message: "the edit waited out its time behind another command",
+    notAttempted: true,
+  });
+  const lateSettings = () => {
+    const answer = Promise.withResolvers<boolean>();
+    setTimeout(() => answer.resolve(true), 70_000);
+    return answer.promise;
+  };
+  const slow = runner(lateSettings)(edit(T0 + 60_000)).catch((e) => e);
+  await vi.runAllTimersAsync();
+  await expect(slow).resolves.toMatchObject({ notAttempted: true });
+  expect(log).toEqual([]);
 });

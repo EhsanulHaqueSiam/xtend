@@ -13,10 +13,10 @@ import { XEmpty } from "../components/xnative/XRows";
 import {
   at,
   engineAtom,
-  postOn,
   postSurface,
   REPLY_SORTS,
   type ReplySort as Sort,
+  threadOf,
 } from "../state/engine";
 import { refreshScreen, xGo, xNavigate, xSortReplies } from "../state/x";
 
@@ -63,10 +63,8 @@ function PostScreen() {
   // A reply through the session left the engine on X's composer, so X's router brings the thread
   // back fresh, the reply already in place. One through the API left it here: load the thread again.
   const afterReply = () => void xGo(url).then((moved) => moved || refreshScreen());
-  const posts = at(engine.lists, surface).flatMap((pid) => postOn(engine, surface, pid) ?? []);
-  // An edit made here lists X's new version in this post's place.
-  const index = posts.findIndex((p) => p.postId === id || p.edits.includes(id));
-  const focal = index === -1 ? engine.posts.get(id) : posts[index];
+  // An edited post's page shows its newest version.
+  const { posts, index, focal } = threadOf(engine, surface, id);
   const above = index === -1 ? [] : posts.slice(0, index);
   const below = index === -1 ? [] : posts.slice(index + 1);
   const quoted = (pid: string | null) => (pid === null ? undefined : engine.posts.get(pid));

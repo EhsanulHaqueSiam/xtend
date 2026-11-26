@@ -682,6 +682,18 @@ const newestIn = (per: PerSurface<string>, latest: ReadonlyMap<string, string>) 
     per,
   );
 
+/**
+ * A post screen's thread for `id` on its `surface`: X's list, and where in it the post itself is,
+ * as its newest version the store has (see `latest`); index -1 with the post alone until X's
+ * thread is in.
+ */
+export function threadOf(state: EngineState, surface: AnySurface, id: string) {
+  const posts = at(state.lists, surface).flatMap((pid) => postOn(state, surface, pid) ?? []);
+  const newest = state.latest.get(id) ?? id;
+  const index = posts.findIndex((p) => p.postId === newest);
+  return { posts, index, focal: index === -1 ? state.posts.get(newest) : posts[index] };
+}
+
 /** A surface's entries; a tab X has not sent yet has none. */
 export const at = <A>(per: PerSurface<A>, surface: AnySurface): ReadonlyArray<A> =>
   (per as Partial<Record<AnySurface, ReadonlyArray<A>>>)[surface] ?? [];

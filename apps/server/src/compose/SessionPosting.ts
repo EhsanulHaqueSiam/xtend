@@ -1,5 +1,6 @@
 import {
   ComposeError,
+  DESKTOP_COMMAND_LIMIT_MS,
   type DesktopUnavailableError,
   type DraftPoll,
   isComposeError,
@@ -151,11 +152,14 @@ const make = Effect.gen(function* () {
       const refused = yield* humanPace;
       if (refused !== null)
         return yield* new ComposeError({ operation: "sessionEditPost", detail: refused });
+      // The desktop enforces it itself: an edit read late, behind another command, never starts.
+      const deadline = (yield* Clock.currentTimeMillis) + DESKTOP_COMMAND_LIMIT_MS.sessionEditPost;
       return yield* desktop
         .request({
           type: "sessionEditPost",
           postId: input.postId,
           text: input.text,
+          deadline,
           ...(input.styles === undefined || input.styles.length === 0
             ? {}
             : { styles: input.styles }),

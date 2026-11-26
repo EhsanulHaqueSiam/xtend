@@ -41,7 +41,12 @@ export const DesktopCommand = Schema.Union([
    * Edits the user's own post through X's own Edit post (same setting as sessionPost): X's "..." on
    * its page, X's Edit row, the text replaced in X's composer, X's Update.
    */
-  Schema.Struct({ type: Schema.Literal("sessionEditPost"), ...PostEdit.fields }),
+  Schema.Struct({
+    type: Schema.Literal("sessionEditPost"),
+    ...PostEdit.fields,
+    /** When the service stops waiting (epoch ms): the edit never starts or presses after it. */
+    deadline: Schema.Number,
+  }),
   Schema.Struct({ type: Schema.Literal("sessionNavigate"), url: Schema.String }),
   /** Clicks X's own like on the post's page in the session view; same setting as sessionPost. */
   Schema.Struct({ type: Schema.Literal("sessionLike"), postId: XId }),
@@ -64,10 +69,9 @@ export const DesktopCommand = Schema.Union([
 export type DesktopCommand = typeof DesktopCommand.Type;
 
 /**
- * How long the desktop may spend on a command, counted from when it receives it and never past the
- * request's `deadline`. It gives up by then and says why; the service waits a little longer for
- * that answer. A session post loads X's composer, uploads its media (a video can take minutes) and
- * waits for X to confirm.
+ * How long the desktop may spend on a command, counted from when it receives it. It gives up by
+ * then and says why; the service waits a little longer for that answer. A session post loads X's
+ * composer, uploads its media (a video can take minutes) and waits for X to confirm.
  */
 export const DESKTOP_COMMAND_LIMIT_MS = {
   sessionScreenshot: 20_000,
@@ -102,11 +106,6 @@ export type DesktopCommandResultFor<C extends DesktopCommand> = Extract<
 export const DesktopCommandRequest = Schema.Struct({
   id: Schema.String,
   command: DesktopCommand,
-  /**
-   * When the service stops waiting, less its answer margin (epoch ms): the desktop reads its
-   * commands one at a time, so one may reach it late, and it must give up by then all the same.
-   */
-  deadline: Schema.optional(Schema.Number),
 });
 export type DesktopCommandRequest = typeof DesktopCommandRequest.Type;
 

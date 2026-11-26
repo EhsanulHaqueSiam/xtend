@@ -7,7 +7,6 @@ import {
   type DesktopCommandResultFor,
   DesktopUnavailableError,
 } from "@xtend/contracts";
-import * as Clock from "effect/Clock";
 import * as Context from "effect/Context";
 import * as Crypto from "effect/Crypto";
 import * as Deferred from "effect/Deferred";
@@ -64,8 +63,7 @@ const make = Effect.gen(function* () {
     const id = yield* Effect.orDie(uuids.randomUUIDv4());
     const done = yield* Deferred.make<DesktopCommandResult, DesktopUnavailableError>();
     pending.set(id, done);
-    const deadline = (yield* Clock.currentTimeMillis) + DESKTOP_COMMAND_LIMIT_MS[command.type];
-    yield* PubSub.publish(commands, { to, request: { id, command, deadline } });
+    yield* PubSub.publish(commands, { to, request: { id, command } });
     const timeoutMs = DESKTOP_COMMAND_LIMIT_MS[command.type] + ANSWER_MARGIN_MS;
     return yield* Deferred.await(done).pipe(
       Effect.timeoutOrElse({

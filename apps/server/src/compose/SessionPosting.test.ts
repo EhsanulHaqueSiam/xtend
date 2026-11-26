@@ -1,6 +1,10 @@
 import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import { expect, it } from "@effect/vitest";
-import { type DesktopCommand, DesktopUnavailableError } from "@xtend/contracts";
+import {
+  DESKTOP_COMMAND_LIMIT_MS,
+  type DesktopCommand,
+  DesktopUnavailableError,
+} from "@xtend/contracts";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as TestClock from "effect/testing/TestClock";
@@ -44,8 +48,15 @@ it.effect("edits through the session only while session actions are on, styles a
     yield* settings.update({ sessionPostingEnabled: true });
     const bold = [{ start: 0, end: 5, style: "Bold" as const }];
     expect(yield* session.edit({ ...edit, styles: bold })).toEqual({ postId: "702" });
+    // With the service's own deadline (the test clock starts at 0), past which it stops waiting.
     expect(asked).toEqual([
-      { type: "sessionEditPost", postId: "701", text: "fixed the typo", styles: bold },
+      {
+        type: "sessionEditPost",
+        postId: "701",
+        text: "fixed the typo",
+        styles: bold,
+        deadline: DESKTOP_COMMAND_LIMIT_MS.sessionEditPost,
+      },
     ]);
   }).pipe(Effect.provide(layerTest)),
 );
