@@ -6,6 +6,7 @@ import type { OverlaySave } from "../ipc/channels.ts";
 import {
   commandRunner,
   dmThroughComposer,
+  editCreates,
   likeOnPage,
   overlaySaver,
   postThroughComposer,
@@ -436,4 +437,79 @@ it("refuses a DM untouched when X's message composer never draws", async () => {
   await vi.advanceTimersByTimeAsync(15_000);
   expect(await result).toMatchObject({ notAttempted: true });
   expect(log).toEqual(["load https://x.com/messages/compose?recipient_id=42"]);
+});
+
+it("takes as an edit's answer only X's answer to the one request that is that edit", async () => {
+  const body = (text: string, previous: string) =>
+    Promise.resolve(
+      JSON.stringify({
+        variables: { tweet_text: text, edit_options: { previous_tweet_id: previous } },
+      }),
+    );
+  const outcome = async (
+    requests: ReadonlyArray<readonly [string, Promise<string | undefined>]>,
+  ) => {
+    const creates = editCreates();
+    // A request sent before the press is never one of its own.
+    creates.request("r0", body("Fixed the typo", "701"));
+    const stop = creates.listen();
+    for (const [id, sent] of requests) creates.request(id, sent);
+    await Promise.resolve();
+    for (const [id] of requests) creates.answered(id, `9${id.slice(1)}`);
+    creates.answered("r0", "900");
+    const result = creates.outcome("701", "Fixed  the\ntypo");
+    stop();
+    return result;
+  };
+  // Its whole text (whitespace as X sends it) and its edit target, nothing less.
+  expect(
+    await outcome([
+      ["r1", body("Fixed the typo and more", "701")],
+      ["r2", body("Fixed the typo", "702")],
+      ["r3", body("Fixed the typo", "701")],
+    ]),
+  ).toEqual({ postId: "93" });
+  // A body the capture could not read, or two requests that are this edit: uncertain.
+  expect(
+    await outcome([
+      ["r1", Promise.resolve(undefined)],
+      ["r3", body("Fixed the typo", "701")],
+    ]),
+  ).toBe("uncertain");
+  expect(
+    await outcome([
+      ["r1", body("Fixed the typo", "701")],
+      ["r3", body("Fixed the typo", "701")],
+    ]),
+  ).toBe("uncertain");
+  // A body still being read: wait for it.
+  expect(await outcome([["r1", new Promise<string>(() => {})]])).toBe(null);
+});
+
+it("refuses an edit untouched past the service's deadline for it, or when Settings answers only after it", async () => {
+  vi.useFakeTimers({ now: T0 });
+  const log: Array<string> = [];
+  const runner = (enabled: () => Promise<boolean>) =>
+    commandRunner({
+      ...composer(log),
+      navigate: () => {},
+      nextCreatedPost: async () => "1",
+      sessionPostingEnabled: enabled,
+    });
+  const edit = (deadline: number) =>
+    ({ type: "sessionEditPost", postId: "701", text: "fixed", deadline }) as const;
+  // Read late, behind a long command: its own limit is not used up, the service's deadline is.
+  await expect(runner(async () => true)(edit(T0 - 1))).rejects.toMatchObject({
+    message: "the edit waited out its time behind another command",
+    notAttempted: true,
+  });
+  const lateSettings = () => {
+    const answer = Promise.withResolvers<boolean>();
+    setTimeout(() => answer.resolve(true), 70_000);
+    return answer.promise;
+  };
+  const slow = runner(lateSettings)(edit(T0 + 60_000)).catch((e) => e);
+  await vi.runAllTimersAsync();
+  await expect(slow).resolves.toMatchObject({ notAttempted: true });
+  expect(log).toEqual([]);
 });

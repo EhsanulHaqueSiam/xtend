@@ -1,5 +1,5 @@
 import { useAtomValue } from "@effect/atom-react";
-import { createFileRoute, Link, useRouter } from "@tanstack/react-router";
+import { createFileRoute, Link, Navigate, useRouter } from "@tanstack/react-router";
 import { ChevronRight } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 
@@ -63,6 +63,17 @@ function PostScreen() {
   // A reply through the session left the engine on X's composer, so X's router brings the thread
   // back fresh, the reply already in place. One through the API left it here: load the thread again.
   const afterReply = () => void xGo(url).then((moved) => moved || refreshScreen());
+  // X shows an edited post's newest version: its page moves there, its thread already with it.
+  const newer = engine.latest.get(id);
+  if (newer !== undefined)
+    return (
+      <Navigate
+        to="/post/$id"
+        params={{ id: newer }}
+        search={{ h, ...(sort === "Relevance" ? {} : { sort }) }}
+        replace
+      />
+    );
   const posts = at(engine.lists, surface).flatMap((pid) => postOn(engine, surface, pid) ?? []);
   const index = posts.findIndex((p) => p.postId === id);
   const focal = index === -1 ? engine.posts.get(id) : posts[index];

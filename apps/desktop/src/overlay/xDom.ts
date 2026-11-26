@@ -138,6 +138,20 @@ export const X_COMPOSER = {
 } as const;
 
 /**
+ * X Premium's Edit post, as X's code names it: the "..." row (loader.TweetCurationActionMenu's
+ * testID "edit", "Edit post"), X's composer in edit mode, whose Post button reads "Update"
+ * (bundle.Compose's isEdit), and the confirm X asks before the last edit ("This is your last
+ * edit"), whose button reads "Update" too.
+ */
+export const X_EDIT = {
+  caret: '[data-testid="caret"]',
+  row: '[role="menuitem"][data-testid="edit"]',
+  button: 'button[data-testid="tweetButton"]',
+  word: "Update",
+  lastEditConfirm: '[data-testid="confirmationSheetConfirm"]',
+} as const;
+
+/**
  * X's reply row for each setting and the label its button takes once picked. X's "Accounts you
  * follow and who they follow" has no ReplySettings value (nor one in X's API), so it is never
  * picked; "Everyone" is X's default and never pressed.

@@ -25,6 +25,7 @@ import {
 import { isElectron } from "../../env";
 import { cn } from "../../lib/utils";
 import { askFollow, engineAtom, updateEngine, youFollow } from "../../state/engine";
+import { useSessionLane } from "../../state/settings";
 import {
   xAct,
   xOverAtom,
@@ -43,6 +44,7 @@ import { FollowButton } from "./FollowButton";
 import { HoverCard } from "./HoverCard";
 import { viewerAtom } from "./MediaViewer";
 import { ContextLine, LinkCard, Note, Poll } from "./PostParts";
+import { PostEditor } from "./PostEditor";
 import { RichText } from "./RichText";
 import { SpaceCard } from "./SpaceCard";
 import { avatar96, engagement, viewsPerHour, xAge, xStamp } from "./format";
@@ -56,6 +58,9 @@ export const quoteAtom = Atom.make<EnginePost | null>(null);
 /** The three buttons a post's own state comes with, and the button that takes each back. */
 type Press = "like" | "retweet" | "bookmark";
 const UNDO = { like: "unlike", retweet: "unretweet", bookmark: "removeBookmark" } as const;
+
+/** X's own "..." row for X Premium's Edit post (loader.TweetCurationActionMenu). */
+const EDIT_ROW = "Edit post";
 
 /** X shows a long post's first 280 characters in a list, then "Show more". */
 const SHOWN_IN_LIST = 280;
@@ -613,6 +618,10 @@ export function XPostView({
   const [xRows, setXRows] = useState<ReadonlyArray<string> | null | undefined>(undefined);
   const [shareRows, setShareRows] = useState<ReadonlyArray<string> | null | undefined>(undefined);
   const setOver = useAtomSet(xOverAtom);
+  // X's Edit post opens Xtend's editor only where Update can go through the session; with session
+  // actions off it is refused, as X's other rows are.
+  const session = useSessionLane();
+  const [editing, setEditing] = useState(false);
   const setEngine = useAtomSet(engineAtom);
   const setQuote = useAtomSet(quoteAtom);
   const xPost = { postId: post.postId, handle: post.author.handle };
@@ -745,7 +754,12 @@ export function XPostView({
           </MenuItem>
         ) : (
           xRows?.map((label) => (
-            <MenuItem key={label} onClick={() => void pressX(label)}>
+            <MenuItem
+              key={label}
+              onClick={() =>
+                label === EDIT_ROW && session ? setEditing(true) : void pressX(label)
+              }
+            >
               {label}
             </MenuItem>
           ))
@@ -907,9 +921,15 @@ export function XPostView({
           <ReplyingTo handles={post.replyingTo} />
         </div>
         {translated === null ? null : <div className="mt-3">{translated}</div>}
-        <p className="mt-3 text-[17px] leading-6 break-words whitespace-pre-wrap">
-          <RichText text={shown.text} entities={shown.entities} styles={shown.styles} />
-        </p>
+        {editing ? (
+          <div className="mt-3">
+            <PostEditor post={post} font="text-[17px] leading-6" onDone={() => setEditing(false)} />
+          </div>
+        ) : (
+          <p className="mt-3 text-[17px] leading-6 break-words whitespace-pre-wrap">
+            <RichText text={shown.text} entities={shown.entities} styles={shown.styles} />
+          </p>
+        )}
         <div className="mt-3 flex flex-col gap-3 empty:hidden">
           {post.media.length === 0 ? null : <Media media={post.media} />}
           {quoted === undefined ? null : <QuoteBox quoted={quoted} onOpen={onOpen} />}
@@ -1004,7 +1024,9 @@ export function XPostView({
         </div>
         <ReplyingTo handles={post.replyingTo} />
         {translated}
-        {shown.text === "" ? null : (
+        {editing ? (
+          <PostEditor post={post} font="text-[15px] leading-5" onDone={() => setEditing(false)} />
+        ) : shown.text === "" ? null : (
           <p className="-mt-1.5 text-[15px] leading-5 break-words whitespace-pre-wrap">
             <RichText
               text={clampText(shown.text) ?? shown.text}
@@ -1029,6 +1051,9 @@ export function XPostView({
         {quoted === undefined ? null : <QuoteBox quoted={quoted} onOpen={onOpen} />}
         <Extras post={post} onVote={own ? undefined : vote} />
         {post.aiGenerated ? <p className={cn("text-[13px]", X_GRAY)}>Made with AI</p> : null}
+        {post.edits.length > 1 ? (
+          <p className={cn("text-[13px]", X_GRAY)}>Last edited {xStamp(post.createdAt)}</p>
+        ) : null}
         {actions}
         <XtendLine post={post} />
       </div>

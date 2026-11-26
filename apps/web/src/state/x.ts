@@ -140,6 +140,9 @@ const heldOn = <A>(work: Promise<A>, signal: AbortSignal) =>
 export const xGo = (url: string, signal?: AbortSignal): Promise<boolean> =>
   signal === undefined ? go(url) : heldOn(go(url), signal).then((moved) => moved ?? false);
 
+/** The x.com page the engine shows now; null while there is no engine (a browser). */
+export const xHere = () => (element !== null && ready ? element.getURL() : null);
+
 const go = (url: string): Promise<boolean> => {
   if (!isXUrl(url)) return Promise.resolve(false);
   const load = () => xNavigate(url).then(() => true);

@@ -76,12 +76,12 @@ describe("renderEngineBatch posts", () => {
     expect([post?.postId, post?.replyToId, post?.author.handle]).toEqual(["5", "9", "theo"]);
   });
 
-  it("draws a reply, its links and card as X does, with the viewer's own state", () => {
+  it("draws a reply, its links and card as X does, with the viewer's own state, and X's text to edit it", () => {
     const post = tweet(
       "1",
       {
         full_text: "@theo @dhh read this https://t.co/link https://t.co/card",
-        display_text_range: [10, 55],
+        display_text_range: [11, 56],
         entities: {
           user_mentions: [
             { screen_name: "theo", indices: [0, 5] },
@@ -116,9 +116,15 @@ describe("renderEngineBatch posts", () => {
           },
         },
         birdwatch_pivot: { subtitle: { text: "This image is from 2019." } },
+        edit_control: { edit_tweet_ids: ["1"], edits_remaining: "5" },
       },
     );
     const [p] = renderEngineBatch("HomeLatestTimeline", {}, { data: [item(post)] }).posts;
+    // As X's Edit post fills its composer: X's display range, the links expanded, the card's kept.
+    expect(p!.edit).toEqual({
+      text: "read this https://a.dev/x https://bunny.net/blog",
+      styles: [],
+    });
     expect(p).toMatchObject({
       text: "read this https://t.co/link",
       replyingTo: ["theo", "dhh"],
@@ -2081,10 +2087,22 @@ describe("renderEngineBatch for live text, edits, threads and people", () => {
         display_text_range: [6, 31],
         entities: { user_mentions: [{ screen_name: "theo", indices: [0, 5] }], urls: [] },
       },
-      { note_tweet: { note_tweet_results: { result: note } } },
+      {
+        note_tweet: { note_tweet_results: { result: note } },
+        edit_control: { edit_tweet_ids: ["5"], edits_remaining: "5" },
+      },
     );
     const [post] = renderEngineBatch("TweetDetail", {}, { data: [reply] }).posts;
     expect(post!.text).toBe("Ship it today. Then rest.");
+    // X's Edit post opens a long post's whole note, its runs where X's tags put them.
+    expect(post!.edit).toEqual({
+      text: full,
+      styles: [
+        { start: 6, end: 13, style: "Bold" },
+        { start: 11, end: 19, style: "Italic" },
+        { start: 11, end: 19, style: "Bold" },
+      ],
+    });
     expect(post!.styles!.map((s) => [s.style, post!.text.slice(s.start, s.end)])).toEqual([
       ["Bold", "Ship it"],
       ["Italic", "it today"],
