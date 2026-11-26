@@ -706,22 +706,37 @@ function swapVersion(state: EngineState, oldId: string, newId: string): EngineSt
       Object.entries(state.entries).map(([s, entries]) => [s, placed(entries)]),
     ) as EngineState["entries"],
   };
-  // Its open thread, for every reply order: the new version's, where it has none of its own yet.
+  // Its open thread, for every reply order: joined to the new version's, the old rows after it.
   let { lists, waiting, nextTop } = next;
   const cursors: { -readonly [S in AnySurface]?: EngineState["cursors"][S] } = { ...next.cursors };
   const entries: { -readonly [S in AnySurface]?: EngineState["entries"][S] } = { ...next.entries };
   for (const sort of REPLY_SORTS) {
     const from = postSurface(oldId, sort);
     const to = postSurface(newId, sort);
-    if (at(lists, from).length === 0 || at(lists, to).length > 0) continue;
-    lists = set(set(lists, to, at(lists, from)), from, []);
-    waiting = set(set(waiting, to, at(waiting, from)), from, []);
-    nextTop = set(set(nextTop, to, at(nextTop, from)), from, []);
-    cursors[to] = cursors[from];
+    if (at(lists, from).length === 0) continue;
+    const join = (per: PerSurface<string>) =>
+      set(set(per, to, unique([...at(per, to), ...at(per, from)])), from, []);
+    lists = join(lists);
+    waiting = join(waiting);
+    nextTop = join(nextTop);
+    cursors[to] ??= cursors[from];
     delete cursors[from];
-    entries[to] = entries[from];
+    entries[to] = new Map([...(entries[from] ?? []), ...(entries[to] ?? [])]);
     delete entries[from];
   }
+  // A version shown in a list no longer waits behind its pill there.
+  const shown = lists;
+  waiting = (Object.keys(waiting) as ReadonlyArray<AnySurface>).reduce(
+    (out, s) =>
+      at(out, s).some((id) => at(shown, s).includes(id))
+        ? set(
+            out,
+            s,
+            at(out, s).filter((id) => !at(shown, s).includes(id)),
+          )
+        : out,
+    waiting,
+  );
   next = { ...next, lists, waiting, nextTop, cursors, entries };
   return next;
 }
@@ -953,9 +968,12 @@ export function mergeBatch(state: EngineState, batch: EngineBatch): EngineState 
     xArticles: mergeXArticles(state.xArticles, batch),
   };
   // Each version this answer made newest takes its earlier one's place, once.
-  const swapped = [...latest]
-    .filter(([oldId, newId]) => state.latest.get(oldId) !== newId)
-    .reduce((s, [oldId, newId]) => swapVersion(s, oldId, newId), merged);
+  const swapped =
+    latest === state.latest
+      ? merged
+      : [...latest]
+          .filter(([oldId, newId]) => state.latest.get(oldId) !== newId)
+          .reduce((s, [oldId, newId]) => swapVersion(s, oldId, newId), merged);
   const listed = surfacesOf(batch)
     .map((surface) => newestThread(surface, latest))
     .reduce(
@@ -1426,7 +1444,9 @@ function promptsOf(state: EngineState, batch: EngineBatch): EngineState["prompts
  */
 function placeCreated(state: EngineState, post: EnginePost): EngineState {
   if (post.edits.length > 1) return state;
-  const parentId = post.replyToId;
+  // A reply to an earlier version goes under the newest one.
+  const parentId =
+    post.replyToId === null ? null : (state.latest.get(post.replyToId) ?? post.replyToId);
   if (parentId === null) {
     const surfaces: ReadonlyArray<AnySurface> = [
       "forYou",

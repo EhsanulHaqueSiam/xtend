@@ -1332,8 +1332,19 @@ export async function editThroughComposer(
       );
     }
     if (Date.now() < deadline) throw error;
-    // Past the deadline: X's page loads again, before the command settles, so the next starts clean.
-    await until(contents.loadURL(page), soon, late).catch(() => {});
+    // Past the deadline: X's page loads again before the command settles, so the next starts clean,
+    // unless X answers with a page that is not the edit's own (the post's, or the composer it
+    // opened): the user moved it. A page that does not answer is taken as stuck on the edit's.
+    const where = await until(
+      raw("Runtime.evaluate", { expression: "location.pathname", returnByValue: true }),
+      soon,
+      late,
+    ).then(
+      (answer) => String((answer as { result: { value: unknown } }).result.value),
+      () => "",
+    );
+    if (where === "" || where === "/compose/post" || new RegExp(`/status/${id}(/|$)`).test(where))
+      await until(contents.loadURL(page), soon, late).catch(() => {});
     if (pressed)
       throw new Error(`${late} after its press; it may have gone through`, { cause: error });
     throw error instanceof NotAttempted ? error : unchanged(error);

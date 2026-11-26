@@ -1641,3 +1641,31 @@ it("swaps an edited post's new version in once, everywhere: its lists, its place
   state = mergeBatch(state, batch("CreateTweet", [{ ...post("800", at0), replyToId: "703" }]));
   expect(at(state.lists, postSurface("703", "Recency"))).toEqual(["703", "800", "600"]);
 });
+
+it("swaps a version in without a phantom pill, merges both threads, and puts a reply to the original under the new one", () => {
+  const t = "2026-11-26T09:00:00Z";
+  let state = mergeBatch(
+    emptyEngine,
+    batch("HomeLatestTimeline", [post("701", t)], { order: ["701"] }),
+  );
+  // X's newer page brings 703 (no history yet) behind the pill; both versions have threads.
+  state = mergeBatch(
+    state,
+    batch("HomeLatestTimeline", [post("703", t), post("701", t)], { order: ["703", "701"] }),
+  );
+  const reply = (id: string, to: string) => ({ ...post(id, t), replyToId: to });
+  state = mergeBatch(
+    state,
+    batch("TweetDetail", [post("701", t), reply("600", "701")], { key: "701" }),
+  );
+  state = mergeBatch(
+    state,
+    batch("TweetDetail", [post("703", t), reply("900", "703")], { key: "703" }),
+  );
+  state = mergeBatch(state, batch("CreateTweet", [{ ...post("703", t), edits: ["701", "703"] }]));
+  expect([at(state.lists, "following"), at(state.waiting, "following")]).toEqual([["703"], []]);
+  expect(at(state.lists, postSurface("703"))).toEqual(["703", "900", "600"]);
+  state = mergeBatch(state, batch("CreateTweet", [reply("950", "701")]));
+  expect(at(state.lists, postSurface("703"))).toEqual(["703", "950", "900", "600"]);
+  expect(state.posts.get("703")?.metrics.replies).toBe(1);
+});

@@ -752,8 +752,9 @@ interface EditPage {
  * it, with the post's text. Update sends at once, or after X's confirm on the last edit.
  */
 function fakeEditPage(log: Array<string>, creates: ReturnType<typeof editCreates>, page: EditPage) {
-  // A page fresh from its load: no menu hold left by an earlier edit.
+  // The post's page fresh from its load: no menu hold left by an earlier edit.
   Reflect.deleteProperty(window, "__xtendMenuQueue");
+  history.replaceState(null, "", "/you/status/701");
   document.body.innerHTML = `
 <div id="react-root">
   <article><a href="/you/status/701"><time>1m</time></a><button data-testid="caret" data-of="701" aria-haspopup="menu" aria-expanded="false">…</button><div>first take</div></article>
@@ -929,6 +930,21 @@ it("ends by the deadline whatever DevTools does: a late answer lets no input go,
   expect(lateBox.result).toMatchObject({ notAttempted: true });
   expect(lateBox.log).toEqual([]);
   expect(lateBox.loads).toEqual([PAGE, PAGE]);
+
+  // The same, but the user took X to Explore meanwhile: X stays where they put it.
+  let asked = 0;
+  const moved = await edit(
+    { editable: true, lastEdit: false },
+    {
+      wrap: (cdp) => (method, params) => {
+        if (method !== "DOM.getBoxModel" || asked++ > 0) return cdp(method, params);
+        history.replaceState(null, "", "/explore");
+        return later(cdp(method, params), 70_000);
+      },
+    },
+  );
+  expect(moved.result).toMatchObject({ notAttempted: true });
+  expect(moved.loads).toEqual([PAGE]);
 
   // DevTools stops answering while the composer is open: refused untouched, the queue moves on.
   let opened = false;
