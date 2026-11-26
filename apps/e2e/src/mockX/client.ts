@@ -729,7 +729,8 @@ const SCRIPT = String.raw`
         if (types.length > 0) tags.push({ from_index: at, to_index: at + length, richtext_types: types });
         at += length;
       }
-      const op = tags.length > 0 ? "CreateNoteTweet" : "CreateTweet";
+      // Past 280 (Premium's longer posts) X sends a long post too.
+      const op = tags.length > 0 || [...text].length > 280 ? "CreateNoteTweet" : "CreateTweet";
       // A Community audience rides the post as X's composer sends it, with its share toggle.
       const to = audience === null ? {} : {
         conversation_control: { mode: "Community" },

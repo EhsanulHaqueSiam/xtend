@@ -1786,6 +1786,16 @@ export const canFormatAtom = Atom.make((get) => {
   return claims?.has(FORMAT_CLAIM) === true || formatting === true;
 });
 
+/**
+ * Whether X lets the account write longer posts: the same Premium gate as bold and italic, one
+ * upsell for both on X. Null until X's claims or composer said.
+ */
+export const longPostsAtom = Atom.make((get): boolean | null => {
+  const { claims, formatting } = get(engineAtom);
+  if (claims?.has(FORMAT_CLAIM) === true || formatting === true) return true;
+  return formatting === false || claims !== null ? false : null;
+});
+
 /** Engine fixtures dev replayed into the store, in a browser with no desktop (DevEngineReplay). */
 export const engineReplayAtom = Atom.make<ReadonlyArray<string>>([]).pipe(Atom.keepAlive);
 

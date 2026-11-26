@@ -4,7 +4,6 @@ import {
   type DraftBlock,
   type DraftMedia,
   MEDIA_MAX_IMAGES,
-  POST_LIMIT,
   type ReplySettings,
   type TextStyle,
 } from "@xtend/contracts";
@@ -14,6 +13,7 @@ import { useEffect, useRef, useState } from "react";
 
 import { cn } from "../../lib/utils";
 import { canFormatAtom } from "../../state/engine";
+import { usePostLimit } from "../../state/settings";
 import { Button } from "../ui/button";
 import { compactInputClass } from "../ui/field";
 import { FormatTools, StyledArea, styleKey } from "./FormatTools";
@@ -149,9 +149,9 @@ export function MediaList({
   );
 }
 
-/** "41/280" in mono: amber in the last 20, red past the limit. */
-function Count({ count }: { readonly count: number }) {
-  const left = POST_LIMIT - count;
+/** "41/280" in mono, against the account's limit: amber in the last 20, red past it. */
+function Count({ count, limit }: { readonly count: number; readonly limit: number }) {
+  const left = limit - count;
   return (
     <span
       aria-label="Characters used"
@@ -164,7 +164,7 @@ function Count({ count }: { readonly count: number }) {
             : "text-muted-foreground/70",
       )}
     >
-      {count}/{POST_LIMIT}
+      {count}/{limit.toLocaleString("en")}
     </span>
   );
 }
@@ -195,7 +195,7 @@ export function ThreadEditor({
   readonly blocks: ReadonlyArray<DraftBlock>;
   readonly media: ReadonlyArray<DraftMedia>;
   readonly previews: Readonly<Record<string, string>>;
-  /** Rides on the first post, so it counts against that post's 280. */
+  /** Rides on the first post, so it counts against that post's limit. */
   readonly quoteUrl: string | null;
   readonly active: number;
   /** The account's initial in the avatar circle. */
@@ -213,6 +213,7 @@ export function ThreadEditor({
   readonly formatting?: boolean;
 }) {
   const canFormat = useAtomValue(canFormatAtom);
+  const limit = usePostLimit();
   // The active post's selection, which Bold and Italic format.
   const [selection, setSelection] = useState({ start: 0, end: 0 });
   const picker = useRef<HTMLInputElement>(null);
@@ -464,7 +465,7 @@ export function ThreadEditor({
                     {notes[i]}
                   </span>
                 ) : null}
-                <Count count={count} />
+                <Count count={count} limit={limit} />
               </div>
             </div>
           </div>

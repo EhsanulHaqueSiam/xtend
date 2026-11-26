@@ -77,6 +77,10 @@ export const MEDIA_MAX_IMAGES = 4;
 
 /** X's limit on a post's weighted length (`charCount`). */
 export const POST_LIMIT = 280;
+/** X's limit for an account with Premium's longer posts. */
+export const LONG_POST_LIMIT = 25_000;
+/** The limit for an account X does (`true`) or does not let write longer posts. */
+export const postLimit = (longPosts: boolean) => (longPosts ? LONG_POST_LIMIT : POST_LIMIT);
 
 // The contract's link rule, so the counter and the price agree with what the service charges.
 const LINK = new RegExp(LINK_PATTERN.source, "gi");

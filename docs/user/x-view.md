@@ -54,18 +54,14 @@ A news row in Explore opens its story: X's headline, when X last updated it, Gro
 X's caveat, and the story's posts in X's tabs (Top, Latest). Saving, reporting and sharing a story
 stay on x.com.
 
-The box at the top of Home is X's composer: images or a video, a poll, who can reply, emoji
-(the system picker, on macOS and Windows) and @mentions suggested from people Xtend has already
-seen on X. Post goes through your session, free, and X's own composer sets the poll and who can
-reply. With session actions off, in a browser without the desktop app, or over 280 characters,
-the box moves to Compose as a draft, where the price is shown.
 The box at the top of Home is X's composer: images or a video, a GIF, a poll, who can reply,
 emoji (the system picker, on macOS and Windows) and @mentions suggested from people Xtend has
 already seen on X. Post goes through your session, free, and X's own composer sets the GIF, the
 poll and who can reply. GIFs come from X's own GIF search, so the GIF button shows only while
 session actions are on in the desktop app, and Compose cannot take a GIF. With session actions
-off, in a browser without the desktop app, or over 280 characters, the box moves to Compose as a
-draft, where the price is shown.
+off, in a browser without the desktop app, or over your limit, the box moves to Compose as a
+draft, where the price is shown. The limit is 280 characters, or 25,000 once X's composer shows
+your account Premium's longer posts.
 
 **Choose audience** (it reads "Everyone") posts to one of your Communities instead, as on X: the
 list is X's own, in X's order, and once you pick one, "Also share with followers" shares it beyond

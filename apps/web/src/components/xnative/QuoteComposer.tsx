@@ -1,12 +1,12 @@
 import { Dialog } from "@base-ui/react/dialog";
 import { useAtom, useAtomValue } from "@effect/atom-react";
 import { useNavigate } from "@tanstack/react-router";
-import { charCount, POST_LIMIT } from "@xtend/contracts";
+import { charCount } from "@xtend/contracts";
 import * as AsyncResult from "effect/reactivity/AsyncResult";
 import { X } from "lucide-react";
 import { useState } from "react";
 
-import { settingsAtom } from "../../state/settings";
+import { settingsAtom, usePostLimit } from "../../state/settings";
 import { useOwnAvatar, useSessionPost } from "./HomeComposer";
 import { Avatar, postUrl, QuoteBox, quoteAtom } from "./XPostView";
 
@@ -20,13 +20,14 @@ export function QuoteComposer() {
   const avatarUrl = useOwnAvatar();
   const navigate = useNavigate();
   const settings = AsyncResult.getOrElse(useAtomValue(settingsAtom), () => null);
+  const limit = usePostLimit();
   const sessionPost = useSessionPost();
   const [text, setText] = useState("");
   const [busy, setBusy] = useState(false);
   const session = settings?.sessionPostingEnabled === true;
   // X weighs the quoted link under the comment (23) with it, as the publisher sends them.
   const length = quoted === null ? 0 : charCount(`${text}\n${postUrl(quoted)}`);
-  const tooLong = length > POST_LIMIT;
+  const tooLong = length > limit;
   const close = () => {
     setQuoted(null);
     setText("");
@@ -84,7 +85,11 @@ export function QuoteComposer() {
           </div>
           <div className="flex items-center gap-3 border-t border-border py-2.5">
             <span className="ml-auto font-mono text-xs text-muted-foreground tabular-nums">
-              {text === "" ? (session ? "free · your session" : "") : `${length}/${POST_LIMIT}`}
+              {text === ""
+                ? session
+                  ? "free · your session"
+                  : ""
+                : `${length}/${limit.toLocaleString("en")}`}
             </span>
             <button
               type="button"

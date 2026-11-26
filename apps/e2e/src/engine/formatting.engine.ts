@@ -56,3 +56,21 @@ test("a long post draws X's bold and italic, and Home's box posts them through X
   await main.locator("article b", { hasText: /^big$/ }).first().waitFor();
   await main.locator("article i", { hasText: /^now$/ }).first().waitFor();
 });
+
+test("Premium's longer posts: Home's box posts past 280 through X's composer as X's long post", async () => {
+  await go("/home?feed=forYou");
+  await expect.poll(enginePath).toBe("/home");
+  const text = `${"long ".repeat(60)}end`;
+  const box = e.app.getByLabel("Post text");
+  await box.fill(text);
+  await e.app.getByText(`${text.length}/25,000`).waitFor();
+  const before = e.mock.state.presses.length;
+  await e.app.getByRole("button", { name: "Post", exact: true }).click();
+  // The last test's "Posted on X" may still show: X's own log says this post went out.
+  await expect
+    .poll(() => e.mock.state.presses.slice(before).map((p) => `${p.kind} ${p.name}`))
+    .toEqual(expect.arrayContaining(["press tweetButton", "write CreateNoteTweet"]));
+  // Home draws it on top, its first 280 characters and "Show more", as X's list does.
+  const drawn = e.app.locator("main article", { hasText: "long long long" }).first();
+  await drawn.getByText("Show more").waitFor();
+});

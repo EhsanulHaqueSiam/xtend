@@ -7,7 +7,6 @@ import {
   type DraftPatch,
   type DraftPoll,
   MEDIA_MAX_BYTES,
-  POST_LIMIT,
   type PostCommunity,
   type ReplySettings,
 } from "@xtend/contracts";
@@ -61,7 +60,7 @@ import { grokWriteAtom, xGrokLeave, xGrokOpenNew, xGrokRelease } from "../state/
 import { savedPostAtom } from "../state/library";
 import { recentPostsAtom } from "../state/observations";
 import { queueAtom, scheduleAtom, unscheduleAtom } from "../state/plan";
-import { settingsAtom, useSessionLane } from "../state/settings";
+import { settingsAtom, usePostLimit, useSessionLane } from "../state/settings";
 import { xUrlAtom } from "../state/x";
 import { Select } from "../components/ui/select";
 import { Switch } from "../components/ui/switch";
@@ -682,6 +681,7 @@ export function ComposeEditor({
     }
   };
 
+  const limit = usePostLimit();
   // Read once per mount; the slot label only needs to know which week it falls in.
   const [mountedAt] = useState(() => new Date());
   const [voice, setVoice] = useState<{ readonly score: number; readonly text: string } | null>(
@@ -735,14 +735,14 @@ export function ComposeEditor({
   const emptyAt = blocks.findIndex(
     (b, i) => postText(b.text, i, quoteUrl).trim() === "" && !hasMediaAt(i),
   );
-  const longAt = blocks.findIndex((b, i) => charCount(postText(b.text, i, quoteUrl)) > POST_LIMIT);
+  const longAt = blocks.findIndex((b, i) => charCount(postText(b.text, i, quoteUrl)) > limit);
   const blocker =
     isBlank(editor) || quoteBad
       ? null
       : emptyAt !== -1
         ? `Post ${emptyAt + 1} is empty`
         : longAt !== -1
-          ? `Post ${longAt + 1} is over ${POST_LIMIT} characters`
+          ? `Post ${longAt + 1} is over ${limit.toLocaleString("en")} characters`
           : editor.poll !== null && editor.poll.options.some((o) => o.trim() === "")
             ? "A poll option is empty"
             : editor.poll !== null && hasMediaAt(0)

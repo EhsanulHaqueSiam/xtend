@@ -28,6 +28,7 @@ const settings = {
   sessionPostingEnabled: false,
   dailyLibraryJobs: false,
   poolSharing: true,
+  longPosts: null,
   voiceNotes: "",
   keywords: [],
   timeZone: "UTC",
