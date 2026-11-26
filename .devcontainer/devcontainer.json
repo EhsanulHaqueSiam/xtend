@@ -1,0 +1,63 @@
+// Dev container for Xtend. Mirrors CI (ubuntu-24.04, the Node pin in mise.toml, pnpm from
+// package.json "packageManager", Playwright's Chromium, xvfb for the Electron suites).
+// Runbook: docs/operations/01_devcontainer.md
+{
+  "name": "Xtend",
+  "image": "mcr.microsoft.com/devcontainers/base:ubuntu-24.04",
+  "features": {
+    "ghcr.io/devcontainers/features/node:2": {
+      // Same pin as mise.toml. pnpm comes from package.json in on-create.sh.
+      "version": "26.11.1",
+      "pnpmVersion": "none"
+    },
+    "ghcr.io/devcontainers/features/github-cli:1": {}
+  },
+  "hostRequirements": {
+    "cpus": 4,
+    "memory": "8gb",
+    "storage": "32gb"
+  },
+  "containerEnv": {
+    // All service state stays in the workspace's gitignored .xtend, never a host ~/.xtend.
+    // pnpm dev sets the same path itself; this covers the CLI and a bare service run.
+    "XTEND_HOME": "${containerWorkspaceFolder}/.xtend",
+    // The container has its own network, so the hashed worktree offset buys nothing: pin the
+    // main checkout's pair (service 4820, web 5820) so the forwarded ports below always match.
+    "XTEND_PORT_OFFSET": "0"
+  },
+  // Nothing from the host's home is mounted: no ~/.xtend, no ~/.xtend-dev, no Electron profile.
+  "mounts": [
+    // Root node_modules holds the virtual store (.pnpm) and, since pnpm keeps its store on the
+    // same filesystem as node_modules, the store too (.pnpm-store). A volume keeps both off the
+    // slow macOS/Windows bind mount and across rebuilds. Scoped by devcontainerId.
+    "source=xtend-node-modules-${devcontainerId},target=${containerWorkspaceFolder}/node_modules,type=volume"
+  ],
+  "onCreateCommand": "bash .devcontainer/on-create.sh",
+  "updateContentCommand": "bash .devcontainer/update-content.sh",
+  "forwardPorts": [5820, 4820],
+  "portsAttributes": {
+    "5820": {
+      "label": "xtend web (proxies /ws and /api to the service)",
+      "onAutoForward": "notify"
+    },
+    "4820": {
+      "label": "xtend service",
+      "onAutoForward": "silent"
+    }
+  },
+  "customizations": {
+    "codespaces": {
+      "openFiles": ["docs/operations/01_devcontainer.md"]
+    },
+    "vscode": {
+      "extensions": ["oxc.oxc-vscode"],
+      "settings": {
+        "files.watcherExclude": {
+          "**/.xtend*/**": true,
+          "**/.t3/**": true
+        }
+      }
+    }
+  },
+  "remoteUser": "vscode"
+}
