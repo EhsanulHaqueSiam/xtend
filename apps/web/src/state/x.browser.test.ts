@@ -176,7 +176,7 @@ const drawMenu = (caret: Element, rows: Record<string, () => void>) => {
     other.setAttribute("aria-expanded", "false");
   for (const menu of document.querySelectorAll("[data-fake-menu]")) menu.remove();
   caret.setAttribute("aria-haspopup", "menu");
-  caret.setAttribute("aria-expanded", "true");
+  if (caret.hasAttribute("aria-expanded")) caret.setAttribute("aria-expanded", "true");
   const layer = document.createElement("div");
   layer.dataset.fakeMenu = "";
   layer.innerHTML = `<div style="height:10px"></div><div role="menu"><div data-testid="Dropdown">${Object.keys(
@@ -186,7 +186,7 @@ const drawMenu = (caret: Element, rows: Record<string, () => void>) => {
     .join("")}</div></div>`;
   const close = () => {
     layer.remove();
-    caret.setAttribute("aria-expanded", "false");
+    if (caret.hasAttribute("aria-expanded")) caret.setAttribute("aria-expanded", "false");
   };
   layer.firstElementChild!.addEventListener("click", close);
   for (const item of layer.querySelectorAll('[role="menuitem"]'))
@@ -203,11 +203,13 @@ const withMenu = (
   rows: Record<string, () => void>,
   trigger = '[data-testid="caret"]',
   button = `<button data-testid="caret"></button>`,
+  stateless = false,
 ) => {
   document.body.innerHTML = `<article><a href="/theo/status/42"><time></time></a>${button}</article>`;
   const caret = document.querySelector(trigger)!;
   caret.setAttribute("aria-haspopup", "menu");
-  caret.setAttribute("aria-expanded", "false");
+  // X's reply sort trigger carries no aria-expanded at all.
+  if (!stateless) caret.setAttribute("aria-expanded", "false");
   caret.addEventListener("click", () => drawMenu(caret, rows));
   inThisPage();
 };
@@ -384,6 +386,7 @@ it("sorts replies through X's own row under the post, and only reports a sort X 
     { Relevant: sortAt(""), Recent: sortAt("?sort_replies=recency"), Likes: () => {} },
     'button[aria-haspopup="menu"]',
     `<div><button aria-haspopup="menu">Relevant</button></div>`,
+    true,
   );
   const labels = ["Relevant", "Recent", "Likes"];
   try {

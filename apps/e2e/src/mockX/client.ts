@@ -548,7 +548,8 @@ const SCRIPT = String.raw`
     log("menu:" + spec);
     rows = rows ?? (await fetch("/__mock/menu?spec=" + encodeURIComponent(spec)).then(json));
     closeLayers();
-    trigger.setAttribute("aria-expanded", "true");
+    // X's reply sort trigger carries no aria-expanded.
+    if (trigger.hasAttribute("aria-expanded")) trigger.setAttribute("aria-expanded", "true");
     const at = trigger.getBoundingClientRect();
     const wrap = document.createElement("div");
     const mask = document.createElement("div");
