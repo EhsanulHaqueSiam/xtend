@@ -1343,7 +1343,11 @@ export async function editThroughComposer(
       (answer) => String((answer as { result: { value: unknown } }).result.value),
       () => "",
     );
-    if (where === "" || where === "/compose/post" || new RegExp(`/status/${id}(/|$)`).test(where))
+    if (
+      where === "" ||
+      where === "/compose/post" ||
+      new RegExp(`^/(?:i/web|[^/]+)/status/${id}(?:/history)?$`).test(where)
+    )
       await until(contents.loadURL(page), soon, late).catch(() => {});
     if (pressed)
       throw new Error(`${late} after its press; it may have gone through`, { cause: error });

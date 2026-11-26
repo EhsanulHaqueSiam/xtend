@@ -13,6 +13,7 @@ const bridge = installFakeBridge();
 const { EngineSync } = await import("./EngineSync");
 const { Timeline } = await import("./Timeline");
 const { markXReady, registerXWebview } = await import("../../state/x");
+const { emptyEngine, updateEngine } = await import("../../state/engine");
 
 const TCO = "https://t.co/abc";
 const LINK = "https://xtend.dev/changelog";
@@ -133,7 +134,9 @@ const screenWith = (
                     detail: "X offers no Edit post on it now; the post was not changed",
                   }),
                 )
-              : Effect.succeed({ postId: outcome === "unsure" ? null : "61" });
+              : Effect.succeed({
+                  postId: outcome === "unsure" ? null : String(Number(edit.postId) + 1),
+                });
           }),
       },
     },
@@ -231,6 +234,33 @@ it("with session actions off, X's Edit post opens no editor, as X's other rows p
       .element(row.getByRole("textbox", { name: "Edit post text" }))
       .not.toBeInTheDocument();
     expect(pressed).toEqual([]);
+  } finally {
+    registerXWebview(null);
+  }
+});
+
+it("a saved edit of the post X shows leaves X on the new version, where the Post screen took it", async () => {
+  updateEngine(() => emptyEngine);
+  const at = { url: "https://x.com/you/status/80" };
+  const { moved } = engine(at);
+  try {
+    // Its own ids: the store outlives a test. X's answer reaches the window first, and the Post screen's own move lands X on the new version.
+    await using screen = await screenWith(true, [], ["saved"], () => {
+      bridge.emitEngine(
+        batch("TweetDetail", [post("81", "Shipping today, edited", { edits: ["80", "81"] })]),
+      );
+      at.url = "https://x.com/you/status/81";
+    });
+    bridge.emitEngine(batch("Likes", [post("80", "Shipping today", { edits: ["80"] })]));
+    const row = screen.getByRole("article").first();
+    await openEdit(row);
+    await userEvent.fill(
+      row.getByRole("textbox", { name: "Edit post text" }),
+      `Shipping today ${LINK} edited`,
+    );
+    await row.getByRole("button", { name: "Update" }).click();
+    await expect.element(screen.getByText("Shipping today, edited")).toBeVisible();
+    expect([moved, at.url]).toEqual([[], "https://x.com/you/status/81"]);
   } finally {
     registerXWebview(null);
   }

@@ -16,6 +16,12 @@ import { xClock } from "./format";
 const tool =
   "-m-1.5 grid size-[34px] cursor-pointer place-items-center rounded-full text-[#1d9bf0] transition-colors duration-150 hover:bg-[#1d9bf0]/10";
 
+/** The post id when X's page is the edit's own (the post, its history), not one of its sub-pages. */
+const editPageOf = (url: string | null) =>
+  url === null
+    ? undefined
+    : /^\/(?:i\/web|[^/]+)\/status\/(\d+)(?:\/history)?$/.exec(new URL(url).pathname)?.[1];
+
 /**
  * X Premium's Edit post in place of the post's text, for X's own Edit row: the text as X's composer
  * opens it, bold and italic where X lets the account format, and Update through X's Edit post in
@@ -66,11 +72,14 @@ export function PostEditor({
     const before = xHere();
     const putBack = (saved: string | null = null) => {
       const now = xHere();
-      const shown = /\/status\/(\d+)/.exec(now ?? "")?.[1];
+      const shown = editPageOf(now);
       const editsPage =
         (shown !== undefined && [post.postId, saved].includes(shown)) ||
-        now?.includes("/compose/post") === true;
-      if (before !== null && now !== before && editsPage) void xGo(before);
+        (now !== null && new URL(now).pathname === "/compose/post");
+      // Saved, X's page for the post is the new version's, as the Post screen moves it there too.
+      const back =
+        saved === null ? before : before?.replace(`/status/${post.postId}`, `/status/${saved}`);
+      if (back != null && now !== back && editsPage) void xGo(back);
     };
     const exit = await update({
       postId: post.postId,
@@ -87,7 +96,7 @@ export function PostEditor({
     // version once, a read for this click, and X's answer there takes the post's place.
     setStatus("Updated on X; reload the post to see it");
     // Only while this window's X still shows the edited post, never over where the user moved it.
-    if (/\/status\/(\d+)/.exec(xHere() ?? "")?.[1] === post.postId)
+    if (editPageOf(xHere()) === post.postId)
       void xNavigate(`https://x.com/${post.author.handle}/status/${saved}`);
   };
 
