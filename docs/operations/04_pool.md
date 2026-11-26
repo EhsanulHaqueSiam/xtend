@@ -88,7 +88,8 @@ trends read).
 - `select pool_register()` and `select pool_flush('[{"install":..,"at":..,"body":{"items":[..]}}]')`
   are what the worker calls; run them by hand to test a schema change. `pool_flush` returns the
   accepted count, the pushes it dropped and the installs it did not know.
-- Local check: a local Postgres with the schema applied, then the worker on it (logged in: dev
+- Local check: a new local Postgres with the schema applied and no `infra/pool/.alchemy/` (dev
+  keeps the buffer's snapshot there between runs), then the worker on it (logged in: dev
   still reads the Hyperdrive config by id) and register, push, the hourly flush and trends. Set
   `DEV_DB` to that Postgres's URL, and use the URL dev prints: 1337 unless another checkout holds
   it.
@@ -106,8 +107,7 @@ trends read).
 
   The first trends read takes the empty snapshot, so the new counts in the last one can only
   come from the scheduled flush. `rows` stays empty: a hot post needs three installs registered
-  over a day ago. Unset `XTEND_POOL_DEV_URL` before a plan or deploy: with it set, the local
-  password goes into the deployed worker's state.
+  over a day ago.
 
 - Size: `select count(*) from pool_posts`, installs: `select count(*) from pool_installs`.
 - Abuse: an install's pushes are in `pool_installs.pushes`; its rows in `pool_sightings`. Delete
