@@ -2,6 +2,10 @@
 
 Xtend is a desktop-first X (Twitter) growth suite: one app whose sidebar holds both X and the tools. x.com runs inside it as the user's own logged-in session, reskinned with CSS, and a local service adds analytics, a composer with a queue, a viral library, engagement targets, lead lists, automations and account scores. The architecture copies T3 Code: a headless Node service owns data and all X calls; thin web and Electron clients connect to it over WebSocket RPC.
 
+## Open work
+
+Open work lives in GitHub issues, not in docs. Each milestone has one `epic` issue whose sub-issues are listed in the order to do them. Issues labelled `agent-ready` carry Goal, Context, Where, Done when, Verify and Constraints: start from one, read the files under Where, and close it from the PR with `Closes #n`. `area:*` labels name the part of the app. What stays X's own page by decision (sign-in, security, payments) is in the "native beyond X's page" epic. New work: `.github/ISSUE_TEMPLATE/task.md`.
+
 ## Glossary
 
 - **service** means the headless `xtend` process in `apps/server`: SQLite, scheduler, automations, treg and X calls, agent runs.
