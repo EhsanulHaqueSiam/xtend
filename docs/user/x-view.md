@@ -95,11 +95,13 @@ recording's captions as it plays with captions on, so rows fill in as you listen
 go there. Ticks on the bar mark where the people you track spoke. Without captions it shows the
 speakers and the player.
 
-Replying starts by reading the post: its text, its images and the thread above it. Xtend says
-what it thinks the post is ("Playful hot take") and why; if that is wrong, say what it is
-instead. **Angles** are replies written for that post, **With help** reworks your own words
-and keeps your voice, **Your own** has no AI at all. A reply goes through your session, free;
-the reading runs on your own Claude or Codex login.
+The reply box opens on **Your own**, with no AI at all. **Angles** first reads the post: its
+text, its images, the thread above it and the replies under it, the ones that did best and the
+ones from the biggest accounts. Xtend says what it thinks the post is ("Playful hot take") and
+why; if that is wrong, say what it is instead. Then it writes replies that each take a different
+approach and stand out from what is already there. **With help** reworks your own words and keeps
+your voice. A reply goes through your session, free; the reading runs on your own Claude or
+Codex login.
 
 ## The sidebar
 

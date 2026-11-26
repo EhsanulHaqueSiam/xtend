@@ -1,4 +1,10 @@
-import { Engage_METHODS, WS_METHODS, type ReplyTone, type XPost } from "@xtend/contracts";
+import {
+  Engage_METHODS,
+  WS_METHODS,
+  type ReplyTone,
+  type SeenReply,
+  type XPost,
+} from "@xtend/contracts";
 import * as Effect from "effect/Effect";
 import * as AsyncResult from "effect/reactivity/AsyncResult";
 import * as Atom from "effect/reactivity/Atom";
@@ -53,6 +59,7 @@ export const readPostAtom = Atom.family((_postId: string) =>
     readonly post: XPost;
     readonly images: ReadonlyArray<string>;
     readonly thread: ReadonlyArray<string>;
+    readonly replies: ReadonlyArray<SeenReply>;
     readonly correction?: string | undefined;
   }>()(
     Effect.fnUntraced(function* ({ correction, ...input }) {

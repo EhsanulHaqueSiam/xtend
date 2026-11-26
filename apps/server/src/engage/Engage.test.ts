@@ -67,20 +67,26 @@ const eventsStub = Layer.succeed(Events.Events)({
   listening: Effect.succeed(false),
 });
 const tregCalls: Array<Treg.TregCall> = [];
+// What the last read handed the model.
+let readInput: unknown = null;
 // Assist echoes the tone it was asked for as the single draft, so a test can read what was asked.
 const assistStub = Layer.succeed(Assist.Assist)({
   // Answers with what it was asked for: the user's own reply to rework, else the tone.
   generate: (request) =>
     request.task === "engage.readPost"
-      ? Effect.succeed({
-          read: String((request.input as { correction?: string }).correction ?? "Playful hot take"),
-          signals: [`${request.images?.length ?? 0} images`],
-          angles: [
-            { label: "Answer with your number", text: "We cut ours to one screenshot." },
-            { label: "Too long", text: "x".repeat(281) },
-          ],
-          why: "he rewards numbers",
-        } as never)
+      ? Effect.sync(() => (readInput = request.input)).pipe(
+          Effect.as({
+            read: String(
+              (request.input as { correction?: string }).correction ?? "Playful hot take",
+            ),
+            signals: [`${request.images?.length ?? 0} images`],
+            angles: [
+              { label: "Answer with your number", text: "We cut ours to one screenshot." },
+              { label: "Too long", text: "x".repeat(281) },
+            ],
+            why: "he rewards numbers",
+          } as never),
+        )
       : Effect.succeed({
           drafts: [
             {
@@ -484,6 +490,51 @@ describe("Engage.readPost", () => {
           correction: "Sarcastic",
         });
         expect(corrected.read).toBe("Sarcastic");
+      }).pipe(Effect.provide(layerTest)),
+  );
+
+  it.effect(
+    "hands the model the replies that did best and the ones from the biggest accounts",
+    () =>
+      Effect.gen(function* () {
+        const engage = yield* Engage.Engage;
+        const reply = (author: string, followers: number, likes: number) => ({
+          author,
+          followers,
+          verified: followers > 100_000,
+          likes,
+          text: `${author} says`,
+        });
+        yield* engage.readPost({
+          post: target("51", "ann"),
+          images: [],
+          thread: [],
+          replies: [
+            reply("small", 40, 3),
+            reply("liked", 900, 120),
+            reply("big", 2_000_000, 1),
+            reply("mid", 50_000, 40),
+            reply("quiet", 10, 0),
+          ],
+        });
+        const input = readInput as {
+          topReplies: ReadonlyArray<{ author: string }>;
+          topCreators: ReadonlyArray<{ author: string }>;
+        };
+        expect(input.topReplies.map((r) => r.author)).toEqual([
+          "liked",
+          "mid",
+          "small",
+          "big",
+          "quiet",
+        ]);
+        expect(input.topCreators.map((r) => r.author)).toEqual([
+          "big",
+          "mid",
+          "liked",
+          "small",
+          "quiet",
+        ]);
       }).pipe(Effect.provide(layerTest)),
   );
 });

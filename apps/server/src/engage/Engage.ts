@@ -8,6 +8,7 @@ import {
   ReplyDraft,
   type ReplyTarget,
   type ReplyTone,
+  type SeenReply,
   VOICE_MIN_SEEN,
   type SentReply,
   type XApiError,
@@ -81,6 +82,8 @@ export class Engage extends Context.Service<
       readonly post: XPost;
       readonly images: ReadonlyArray<string>;
       readonly thread: ReadonlyArray<string>;
+      /** The replies under it that X has shown; the read ranks them by likes and by followers. */
+      readonly replies?: ReadonlyArray<SeenReply> | undefined;
       readonly correction?: string | undefined;
     }) => Effect.Effect<PostRead, EngageError>;
     /** Posts the reply through X; a failure is recorded on the row, never thrown. */
@@ -214,8 +217,10 @@ const make = Effect.gen(function* () {
     readonly post: XPost;
     readonly images: ReadonlyArray<string>;
     readonly thread: ReadonlyArray<string>;
+    readonly replies?: ReadonlyArray<SeenReply> | undefined;
     readonly correction?: string | undefined;
   }) {
+    const replies = input.replies ?? [];
     const { handle } = yield* current;
     const own =
       handle === null
@@ -232,7 +237,7 @@ const make = Effect.gen(function* () {
         instructions: `Read this X post the way a sharp friend would before replying, image and thread included.
 read: what the post is, in 2 to 4 words ("Sincere question", "Sarcastic jab", "Proud announcement", "Playful hot take", "Venting", "Asking for advice"). If correction is set, the user says the post is that: trust it.
 signals: 1 to 3 short notes on what gave it away; if there is an image, one says what it shows.
-angles: 3 or 4 replies written for this post, each different in what it does. label names what the reply does (e.g. "Answer with your number", "Push back on the premise", "Play along with the joke"), never a mood word. text is the reply, under 280 characters, in the user's voice: no flattery, no hashtags, never answer sarcasm or a joke as if it were sincere. The user's replies that did best are their taste: match their length and attitude, never their wording.
+angles: 3 or 4 replies written for this post, each a different move: no two share a point, an opening or a structure (one might add a number or a fact, one push back, one ask the sharp question, one play along), and none repeats what topReplies already say. topReplies are the replies that did best under it; topCreators the replies from its biggest accounts: write what would stand out next to them. label names what the reply does (e.g. "Answer with your number", "Push back on the premise", "Play along with the joke"), never a mood word. text is the reply, under 280 characters, in the user's voice: no flattery, no hashtags, never answer sarcasm or a joke as if it were sincere. The user's replies that did best are their taste: match their length and attitude, never their wording.
 why: one sentence on why these angles fit this author and post.`,
         input: {
           author: input.post.author.handle,
@@ -240,6 +245,10 @@ why: one sentence on why these angles fit this author and post.`,
           text: input.post.text,
           thread: input.thread,
           metrics: input.post.metrics,
+          topReplies: replies.toSorted((a, b) => b.likes - a.likes).slice(0, 8),
+          topCreators: replies
+            .toSorted((a, b) => (b.followers ?? 0) - (a.followers ?? 0))
+            .slice(0, 5),
           yourBestReplies: own,
           ...(input.correction === undefined ? {} : { correction: input.correction }),
         },
