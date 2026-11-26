@@ -2,12 +2,13 @@ import { useAtomSet, useAtomValue } from "@effect/atom-react";
 import { useNavigate } from "@tanstack/react-router";
 import type {
   EngineAccountAnalytics,
+  EngineActiveHour,
   EngineAnalyticsPost,
   EngineAudienceRow,
   EngineMetrics,
 } from "@xtend/contracts";
 import { Check, ChevronDown, ChevronUp } from "lucide-react";
-import { type ReactNode, useCallback, useEffect, useRef, useState } from "react";
+import { Fragment, type ReactNode, useCallback, useEffect, useRef, useState } from "react";
 import { type TableComponents, TableVirtuoso } from "react-virtuoso";
 
 import { isElectron } from "../../env";
@@ -344,7 +345,7 @@ const pickerClass =
   "inline-flex h-7 shrink-0 cursor-pointer items-center gap-1 rounded-[var(--control-radius)] px-2 text-[13px] text-muted-foreground outline-hidden transition-colors duration-150 hover:bg-white/[0.05] hover:text-foreground focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring data-[popup-open]:text-foreground";
 
 /** One of X's dropdowns: its options in X's order, the picked one checked. */
-function Picker<T extends string>({
+export function Picker<T extends string>({
   label,
   options,
   value,
@@ -584,7 +585,7 @@ function ContentSection() {
 }
 
 /** A duration as X writes average watch time: m:ss, or h:mm:ss. */
-const clock = (ms: number) => {
+export const clock = (ms: number) => {
   const s = Math.floor(ms / 1000);
   const two = (n: number) => String(n).padStart(2, "0");
   return s >= 3600
@@ -729,6 +730,10 @@ const AGES = [
   ["AgeOver65", "65+"],
 ] as const;
 const DEVICES = ["iOS", "Android", "Web", "Other"] as const;
+const NETWORK = [
+  ["inNetwork", "Followers"],
+  ["outNetwork", "Non-followers"],
+] as const;
 const regions = new Intl.DisplayNames(["en"], { type: "region" });
 const regionName = (code: string) => {
   try {
@@ -741,14 +746,14 @@ const regionName = (code: string) => {
 
 /**
  * Each slice's share in percent as X's page rounds it: down to a tenth, and what that leaves of
- * 100 to the largest.
+ * 100 to the largest. In X's order of operations, which floating point can tell apart.
  */
 function shares(counts: ReadonlyMap<string, number>): ReadonlyMap<string, number> {
   const total = [...counts.values()].reduce((a, b) => a + b, 0);
   if (total === 0) return new Map();
   const sorted = [...counts].toSorted((a, b) => b[1] - a[1]);
-  const floored = sorted.map(([k, n]) => [k, Math.floor((n / total) * 1000) / 10] as const);
-  const left = 100 - floored.reduce((a, [, v]) => a + v, 0);
+  const floored = sorted.map(([k, n]) => [k, Math.floor(10 * ((n / total) * 100)) / 10] as const);
+  const left = floored.reduce((u, [, v]) => u - v, 100);
   return new Map(
     floored.map(([k, v], i) => [k, i === 0 && left > 0 ? Number((v + left).toFixed(1)) : v]),
   );
@@ -802,7 +807,97 @@ function Breakdown({
   );
 }
 
-/** X's Audience: who engaged by gender, age, country and device, for one engagement at a time. */
+/** X's Active times days, Monday first, as X's page counts them. */
+const WEEKDAYS = ["Mo", "Tu", "We", "Th", "Fr", "Sa", "Su"] as const;
+const HOURS = Array.from({ length: 24 }, (_, h) => h);
+const HOUR = new Intl.DateTimeFormat("en", { hour: "numeric", timeZone: "UTC" });
+/** X's legend steps, least to most engaged. */
+const LEGEND = [0.15, 0.4, 0.65, 0.85, 1];
+
+/**
+ * X's Active times as its page derives them, by `<weekday>-<hour>` in the viewer's zone (Monday
+ * 0): each cell's average count, capped at Q3 + 1.5 IQR of the averages and scaled to 0..1. Null
+ * when X counted nothing, where X's page draws no heatmap.
+ */
+function activeTimes(hours: ReadonlyArray<EngineActiveHour>): ReadonlyMap<string, number> | null {
+  if (!hours.some((h) => h.count > 0)) return null;
+  const byCell = new Map<string, Array<number>>();
+  for (const h of hours) {
+    const at = new Date(h.at);
+    const key = `${(at.getDay() + 6) % 7}-${at.getHours()}`;
+    byCell.set(key, [...(byCell.get(key) ?? []), h.count]);
+  }
+  const averages = [...byCell].map(
+    ([k, v]) => [k, v.reduce((a, b) => a + b, 0) / v.length] as const,
+  );
+  const sorted = averages.map(([, v]) => v).toSorted((a, b) => a - b);
+  const q1 = sorted[Math.floor(sorted.length * 0.25)] ?? 0;
+  const q3 = sorted[Math.floor(sorted.length * 0.75)] ?? 0;
+  const cap = q3 + (q3 - q1) * 1.5;
+  return new Map(averages.map(([k, v]) => [k, cap > 0 ? Math.min(v, cap) / cap : 0]));
+}
+
+/** X's Active times heatmap: days as columns, hours as rows, deeper where more engaged. */
+function ActiveTimes({
+  hours,
+  note,
+}: {
+  readonly hours: ReadonlyArray<EngineActiveHour>;
+  readonly note: string;
+}) {
+  const cells = activeTimes(hours);
+  return (
+    <Section title="Active times" description={note} className="m-0">
+      {cells === null ? (
+        <p className="text-[13px] text-muted-foreground">Not enough data yet</p>
+      ) : (
+        <>
+          <div className="grid grid-cols-[repeat(7,1fr)_2.5rem] gap-0.5">
+            {HOURS.map((h) => (
+              <Fragment key={h}>
+                {WEEKDAYS.map((day, d) => {
+                  const v = cells.get(`${d}-${h}`);
+                  return (
+                    <span
+                      key={day}
+                      data-cell={`${d}-${h}`}
+                      className="h-[7px] rounded-[1px] bg-primary"
+                      style={{
+                        opacity: v === undefined || v === 0 ? 0.15 : Math.min(0.15 + 0.85 * v, 1),
+                      }}
+                    />
+                  );
+                })}
+                <span className="font-mono text-2xs leading-[7px] whitespace-nowrap text-muted-foreground">
+                  {h % 4 === 0 ? HOUR.format(Date.UTC(2000, 0, 1, h)) : ""}
+                </span>
+              </Fragment>
+            ))}
+            {WEEKDAYS.map((day) => (
+              <span key={day} className="mt-1 text-center font-mono text-2xs text-muted-foreground">
+                {day}
+              </span>
+            ))}
+          </div>
+          <div className="mt-3 flex items-center gap-2 text-2xs text-muted-foreground">
+            <span>Least engaged</span>
+            <span className="flex h-1.5 flex-1 overflow-hidden rounded-full">
+              {LEGEND.map((o) => (
+                <span key={o} className="flex-1 bg-primary" style={{ opacity: o }} />
+              ))}
+            </span>
+            <span>Most engaged</span>
+          </div>
+        </>
+      )}
+    </Section>
+  );
+}
+
+/**
+ * X's Audience: who engaged by gender, age, country, device and following, for one engagement at a
+ * time, and X's Active times for the engagement X's page asked about.
+ */
 function AudienceSection() {
   const x = useXAnalytics("x-audience");
   // X opens on Likes.
@@ -852,6 +947,26 @@ function AudienceSection() {
               DEVICES.map((d) => [d, d] as const),
             )}
           />
+          {answer === undefined ? null : (
+            <ActiveTimes
+              hours={answer.active}
+              note={
+                answer.activeMetric === null || answer.activeMetric === metric
+                  ? "Last 28 days"
+                  : `Last 28 days, for ${AUDIENCE_METRICS.find(([id]) => id === answer.activeMetric)?.[1] ?? answer.activeMetric}`
+              }
+            />
+          )}
+          {/* X splits every engagement but new follows by who follows the user. */}
+          {metric === "Follows" ? null : (
+            <Breakdown
+              title="Following"
+              slices={of(
+                (r) => (r.inNetwork === null ? null : r.inNetwork ? "inNetwork" : "outNetwork"),
+                NETWORK,
+              )}
+            />
+          )}
         </div>
       </PageBody>
     </XFrame>

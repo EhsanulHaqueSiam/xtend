@@ -249,11 +249,71 @@ it("breaks X's audience down by the engagement picked, rounded as X's page round
     .toEqual(["Male36.6%", "Female50.1%", "Not specified13.3%"]);
   expect(shares("Country")).toEqual(["Bangladesh68.4%", "United States31.6%"]);
   expect(shares("Device")).toEqual(["iOS50.1%", "Android36.6%", "Web13.3%", "Other0.0%"]);
+  // Who follows the user, in X's order and words.
+  expect(shares("Following")).toEqual(["Followers63.4%", "Non-followers36.6%"]);
   await userEvent.click(x.screen.getByRole("button", { name: "Metric: Likes" }));
   await userEvent.click(page.getByRole("menuitem", { name: "Impressions" }));
   await expect
     .poll(() => shares("Gender"))
     .toEqual(["Male100.0%", "Female0.0%", "Not specified0.0%"]);
+  expect(shares("Following")).toEqual(["Followers0.0%", "Non-followers100.0%"]);
+  // X's page asked its Active times for Likes, and says so beside another engagement.
+  await expect
+    .element(x.screen.getByRole("heading", { name: "Active times Last 28 days, for Likes" }))
+    .toBeVisible();
+  // X splits no new follows by following.
+  await userEvent.click(x.screen.getByRole("button", { name: "Metric: Impressions" }));
+  await userEvent.click(page.getByRole("menuitem", { name: "New follows" }));
+  await expect
+    .element(x.screen.getByRole("heading", { name: "Following" }))
+    .not.toBeInTheDocument();
+  // X takes the percent first, then floors its tenth: 29 of 100 is 28.9, and the tenth left goes to
+  // the largest.
+  await userEvent.click(x.screen.getByRole("button", { name: "Metric: New follows" }));
+  await userEvent.click(page.getByRole("menuitem", { name: "Likes" }));
+  const sent = answer("audience:7");
+  const fav = { type: "Fav", age: null, gender: null, app: null, country: null };
+  x.bridge.emitEngine({
+    ...sent,
+    accountAnalytics: {
+      ...sent.accountAnalytics!,
+      rows: [
+        { ...fav, count: 29, inNetwork: true },
+        { ...fav, count: 71, inNetwork: false },
+      ],
+    },
+  } as EngineBatch);
+  await expect.poll(() => shares("Following")).toEqual(["Followers28.9%", "Non-followers71.1%"]);
+});
+
+it("draws X's Active times as X's page scales them: each weekday-hour's average, an outlier capped", async () => {
+  await using x = await open("x-audience");
+  const sent = answer("audience:7");
+  // In the viewer's zone, as X's page buckets them: Monday's 9am twice, then each day's 9am once.
+  const at = (day: number, count: number) => ({
+    at: new Date(2026, 10, day, 9).toISOString(),
+    count,
+  });
+  x.bridge.emitEngine({
+    ...sent,
+    accountAnalytics: {
+      ...sent.accountAnalytics!,
+      active: [at(2, 6), at(9, 14), at(3, 4), at(4, 2), at(5, 0), at(6, 100), at(7, 6), at(8, 8)],
+    },
+  } as EngineBatch);
+  const opacity = (cell: string) =>
+    Number(
+      x.screen.container.querySelector<HTMLElement>(`[data-cell="${cell}"]`)?.style.opacity,
+    ).toFixed(3);
+  // Averages 0, 2, 4, 6, 8, 10 and 100: capped at 10 + 1.5 x (10 - 2) = 22, so Friday's 100 is the
+  // deepest and Monday's 10 reads 10/22; an hour X counted nothing for is X's palest.
+  await expect.poll(() => opacity("0-9")).toBe("0.536");
+  expect([opacity("4-9"), opacity("6-9"), opacity("3-9"), opacity("0-10")]).toEqual([
+    "1.000",
+    "0.459",
+    "0.150",
+    "0.150",
+  ]);
 });
 
 it("counts X's video numbers for the range, and lists the videos", async () => {

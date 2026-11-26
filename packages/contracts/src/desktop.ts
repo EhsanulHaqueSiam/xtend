@@ -330,6 +330,29 @@ export interface EngineSpaceStats {
   readonly speakers: ReadonlyArray<Pick<EngineSpacePerson, "handle" | "name" | "avatarUrl">>;
 }
 
+/** One of the user's broadcasts, as X's Live analytics list it (liveOverviewProviderQuery). */
+export interface EngineBroadcastRow {
+  readonly broadcastId: string;
+  /** X's title for it (its `status`); empty when it has none. */
+  readonly title: string;
+  /** X's own state: "Running", "NotStarted", "Ended", "Canceled", "PrePublished", "TimedOut". */
+  readonly state: string;
+  readonly startedAt: string | null;
+  readonly endedAt: string | null;
+  readonly scheduledStart: string | null;
+  readonly imageUrl: string | null;
+  readonly views: number;
+  /** X's unique viewers. */
+  readonly viewers: number;
+  readonly minutesWatched: number;
+}
+
+/** X's numbers for one of the user's broadcasts (liveDetailsQuery). */
+export interface EngineBroadcastStats extends EngineBroadcastRow {
+  /** Viewers at each minute of the broadcast (`concurrent_viewers_time_series`); X's peak is its largest. */
+  readonly concurrent: ReadonlyArray<number>;
+}
+
 /** One X Space as X's AudioSpaceById answers: live, scheduled, ended or recorded. */
 export interface EngineSpace {
   readonly spaceId: string;
@@ -788,6 +811,18 @@ export interface EngineBatch {
   readonly spaceAnalytics?:
     | { readonly kind: "list"; readonly spaces: ReadonlyArray<EngineSpaceRow> }
     | { readonly kind: "space"; readonly space: EngineSpaceStats };
+  /**
+   * X's Live analytics: the first page of the user's broadcasts and whether X has more, one
+   * broadcast's numbers, or one X answered with none (deleted).
+   */
+  readonly liveAnalytics?:
+    | {
+        readonly kind: "list";
+        readonly broadcasts: ReadonlyArray<EngineBroadcastRow>;
+        readonly more: boolean;
+      }
+    | { readonly kind: "broadcast"; readonly broadcast: EngineBroadcastStats }
+    | { readonly kind: "unavailable"; readonly broadcastId: string };
   /** The Space X answered AudioSpaceById for with no Space (ended, removed, private, or an error). */
   readonly spaceUnavailable?: string;
   /** What the response told the moderators of each Community it names (`EngineCommunityAdmin`). */
@@ -872,6 +907,14 @@ export interface EngineAudienceRow {
   /** X's client app id, which X names iOS, Android, Web or Other. */
   readonly app: string | null;
   readonly country: string | null;
+  /** Whether it came from the user's followers (X's `is_in_network`); null when X's row does not say. */
+  readonly inNetwork: boolean | null;
+}
+
+/** One hour of X's Active times: its count of the engagement X's page asked about. */
+export interface EngineActiveHour {
+  readonly at: string;
+  readonly count: number;
 }
 
 export type EngineAccountAnalytics =
@@ -898,6 +941,12 @@ export type EngineAccountAnalytics =
       readonly kind: "audience";
       readonly days: number;
       readonly rows: ReadonlyArray<EngineAudienceRow>;
+      /**
+       * X's Active times: the last 28 days by the hour, whatever the range, for the one metric X's
+       * page asked about (`activeMetric`, X's metric id such as `Likes`).
+       */
+      readonly activeMetric: string | null;
+      readonly active: ReadonlyArray<EngineActiveHour>;
     };
 /** A news story X lists in Explore: Grok's summary of it, and X's tabs of posts about it. */
 export interface EngineStory {

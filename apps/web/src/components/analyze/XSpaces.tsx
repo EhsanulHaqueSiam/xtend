@@ -160,17 +160,14 @@ function SpaceRowView({
   );
 }
 
-/** At most this many points on the listeners chart: X counts every second of a long Space. */
-const CHART_POINTS = 240;
-
 /** X's Space Stats for one Space, its Concurrent Listeners and its Speakers, in X's words. */
 function SpaceStats({ stats }: { readonly stats: EngineSpaceStats }) {
   const navigate = useNavigate();
   const peak = stats.concurrent.length === 0 ? 0 : Math.max(...stats.concurrent);
-  const step = Math.max(1, Math.ceil(stats.concurrent.length / CHART_POINTS));
-  const points = stats.concurrent.flatMap((viewers, second) =>
-    second % step === 0 ? [{ label: clock(second), value: viewers }] : [],
-  );
+  const points = stats.concurrent.map((listeners, second) => ({
+    label: clock(second),
+    value: listeners,
+  }));
   const tiles: ReadonlyArray<readonly [string, number | null]> = [
     ["Total Participants", stats.participants],
     ["Peak Concurrent Listeners", peak],
