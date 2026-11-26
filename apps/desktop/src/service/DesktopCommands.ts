@@ -58,83 +58,12 @@ export interface DesktopCommandsOptions {
   readonly serviceToken: string;
   /** Loads a URL in the session view; only x.com hosts are honoured. */
   readonly navigate: (url: string) => void;
-  /** The id of the next post the session creates, as `createdPosts().next` hands it over. */
-  readonly nextCreatedPost: CreatedPosts["next"];
+  /** Resolves with the id of the next post the session creates (from the CreateTweet response). */
+  readonly nextCreatedPost: () => Promise<string>;
+  /** X's create requests and answers, for an edit to tell its own apart (see `editCreates`). */
+  readonly editCreates: EditCreates;
   readonly log: (message: string, detail?: unknown) => void;
 }
-
-/** The post X's answer to a command's own create request made. */
-export interface CreatedPost {
-  readonly postId: string;
-}
-
-/**
- * What a command's press sends X: its text, the post it replies to (absent: not checked, as for
- * an edit), and the post it edits (null for a new post).
- */
-export interface CreateExpected {
-  readonly text: string;
-  readonly replyTo?: string | null;
-  readonly previous: string | null;
-}
-
-// The start of a text as X's composer sends it: whitespace as one space, links aside (X may make a
-// pasted post link its quote).
-const opening = (text: string) =>
-  text
-    .replace(/https?:\/\/\S+/g, " ")
-    .replace(/\s+/g, " ")
-    .trim()
-    .slice(0, 40);
-const idIn = (value: unknown, field: string) => {
-  const id = typeof value === "object" && value !== null ? Reflect.get(value, field) : undefined;
-  return typeof id === "string" ? id : null;
-};
-const sends = (want: CreateExpected, variables: Readonly<Record<string, unknown>>) =>
-  typeof variables.tweet_text === "string" &&
-  opening(variables.tweet_text) === opening(want.text) &&
-  (want.replyTo === undefined || idIn(variables.reply, "in_reply_to_tweet_id") === want.replyTo) &&
-  idIn(variables.edit_options, "previous_tweet_id") === want.previous;
-
-/**
- * X's create requests (CreateTweet, CreateNoteTweet) and their answers. A command listens just
- * before its press and takes the first create request sent after that whose variables are what the
- * press sends, and only that request's answer; once it ends (`signal`) it takes nothing.
- */
-export function createdPosts() {
-  const waiting = new Set<{
-    readonly want: CreateExpected;
-    request?: string;
-    readonly take: (created: CreatedPost) => void;
-  }>();
-  return {
-    next: (want: CreateExpected, signal: AbortSignal) =>
-      new Promise<CreatedPost>((take) => {
-        if (signal.aborted) return;
-        const listener: { want: CreateExpected; request?: string; take: typeof take } = {
-          want,
-          take,
-        };
-        waiting.add(listener);
-        signal.addEventListener("abort", () => waiting.delete(listener), { once: true });
-      }),
-    // A body the capture could not read matches no command: that press's outcome stays unknown.
-    request: (id: string, variables: Readonly<Record<string, unknown>> | undefined) => {
-      if (variables === undefined) return;
-      for (const listener of waiting)
-        if (listener.request === undefined && sends(listener.want, variables))
-          listener.request = id;
-    },
-    answered: (id: string, postId: string) => {
-      for (const listener of waiting)
-        if (listener.request === id) {
-          waiting.delete(listener);
-          listener.take({ postId });
-        }
-    },
-  };
-}
-type CreatedPosts = ReturnType<typeof createdPosts>;
 
 const makeClient = RpcClient.make(WsRpcGroup);
 type Client = Effect.Success<typeof makeClient>;
@@ -167,6 +96,7 @@ export function attachDesktopCommands(
     cdp: (method, params) => contents.debugger.sendCommand(method, params),
     navigate: options.navigate,
     nextCreatedPost: options.nextCreatedPost,
+    editCreates: options.editCreates,
     sessionPostingEnabled: async () => {
       if (client === undefined) throw new Error("service not connected");
       const settings = await Effect.runPromise(client[WS_METHODS.settingsGet]({}));
@@ -286,7 +216,9 @@ interface CommandRunnerDeps {
   readonly contents: Pick<Electron.WebContents, "loadURL">;
   readonly cdp: Cdp;
   readonly navigate: (url: string) => void;
-  readonly nextCreatedPost: CreatedPosts["next"];
+  readonly nextCreatedPost: () => Promise<string>;
+  /** Fed by the capture; without it an edit cannot tell its answer and ends unconfirmed. */
+  readonly editCreates?: EditCreates;
   /** The service's setting, asked again before every post, and again before an edit's Update. */
   readonly sessionPostingEnabled: () => Promise<boolean>;
 }
@@ -336,7 +268,7 @@ export function commandRunner(deps: CommandRunnerDeps) {
           deps.contents,
           deps.cdp,
           command,
-          deps.nextCreatedPost,
+          deps.editCreates ?? editCreates(),
           deadline,
           deps.sessionPostingEnabled,
         );
@@ -382,14 +314,12 @@ const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve,
 
 /** `promise`, or `message` as an error once the deadline passes. */
 const until = <A>(promise: Promise<A>, deadline: number, message: string): Promise<A> =>
-  deadline === Infinity
-    ? promise
-    : Promise.race([
-        promise,
-        sleep(deadline - Date.now()).then(() => {
-          throw new Error(message);
-        }),
-      ]);
+  Promise.race([
+    promise,
+    sleep(deadline - Date.now()).then(() => {
+      throw new Error(message);
+    }),
+  ]);
 
 const attributes = async (cdp: Cdp, nodeId: number): Promise<Record<string, string>> => {
   const { attributes: flat } = (await cdp("DOM.getAttributes", { nodeId })) as {
@@ -423,57 +353,18 @@ async function waitForNode(
   return waitForNode(cdp, selector, deadline, ready);
 }
 
-// On the node just before a press: still in X's page, and its control (the button or row around
-// it) is what a press at (x, y) lands on, not a layer over it.
-const LANDS_ON = `function (x, y) {
-  const control = this.closest('button, a, label, [role="button"], [role="menuitem"], [role="link"]') ?? this;
-  return this.isConnected && control.contains(document.elementFromPoint(x, y));
-}`;
-
-/**
- * Readies a press of the node's middle, as a mouse does, and answers the press. Every step ends by
- * `deadline`, and the press goes only while the node is what it lands on and the deadline has not
- * passed; else it is refused with nothing pressed. A press released after the deadline is finished
- * all the same (one left down is worse) but may have counted, so it fails as such.
- */
-async function aim(cdp: Cdp, nodeId: number, deadline = Infinity): Promise<() => Promise<void>> {
-  const late = "x.com's page did not answer before the command's deadline";
-  const { x, y } = await (async () => {
-    const { model } = (await until(cdp("DOM.getBoxModel", { nodeId }), deadline, late)) as {
-      model: { content: Array<number> };
-    };
-    const [x1, y1, , , x2, y2] = model.content as [number, number, number, number, number, number];
-    const at = { x: (x1 + x2) / 2, y: (y1 + y2) / 2 };
-    const objectId = await until(objectOf(cdp, nodeId), deadline, late);
-    const { result } = (await until(
-      cdp("Runtime.callFunctionOn", {
-        objectId,
-        functionDeclaration: LANDS_ON,
-        arguments: [{ value: at.x }, { value: at.y }],
-        returnByValue: true,
-      }),
-      deadline,
-      late,
-    )) as { result: { value: unknown } };
-    if (result.value !== true) throw new Error("x.com's control was covered or gone at the press");
-    if (Date.now() >= deadline) throw new Error(late);
-    return at;
-  })().catch((error: unknown) => {
-    throw untouched(error);
-  });
+async function click(cdp: Cdp, nodeId: number): Promise<void> {
+  const { model } = (await cdp("DOM.getBoxModel", { nodeId })) as {
+    model: { content: Array<number> };
+  };
+  const [x1, y1, , , x2, y2] = model.content as [number, number, number, number, number, number];
+  const x = (x1 + x2) / 2;
+  const y = (y1 + y2) / 2;
   const press = (type: string) =>
     cdp("Input.dispatchMouseEvent", { type, x, y, button: "left", clickCount: 1 });
-  return async () => {
-    await press("mousePressed");
-    await press("mouseReleased");
-    if (Date.now() >= deadline)
-      throw new Error("x.com's press ended after the command's deadline; it may have gone through");
-  };
+  await press("mousePressed");
+  await press("mouseReleased");
 }
-
-/** Presses the node as `aim` readies it. */
-const click = async (cdp: Cdp, nodeId: number, deadline = Infinity) =>
-  (await aim(cdp, nodeId, deadline))();
 
 const enabled = (attrs: Record<string, string>) =>
   attrs["aria-disabled"] !== "true" && !("disabled" in attrs);
@@ -629,7 +520,7 @@ async function pickReply(
   deadline: number,
   picked: () => void = () => {},
 ): Promise<void> {
-  await click(cdp, await control(cdp, button, "reply setting", deadline), deadline);
+  await click(cdp, await control(cdp, button, "reply setting", deadline));
   const rowNode = await waitForText(
     cdp,
     X_COMPOSER.replyRow,
@@ -639,10 +530,10 @@ async function pickReply(
     throw missing(`"${row}" row`);
   });
   picked();
-  await click(cdp, rowNode, deadline);
+  await click(cdp, rowNode);
   // X names the setting on its button once it took; any other name and the post must not go.
   await control(cdp, X_COMPOSER.replyButtonFor(label), `"${label}"`, deadline);
-  await click(cdp, await control(cdp, TEXTBOX, "text box", deadline), deadline);
+  await click(cdp, await control(cdp, TEXTBOX, "text box", deadline));
   await waitForGone(
     cdp,
     X_COMPOSER.replyPopover,
@@ -659,19 +550,14 @@ async function fillPoll(
   deadline: number,
   added: () => void,
 ): Promise<void> {
-  await click(cdp, await control(cdp, X_COMPOSER.addPoll, "Add poll", deadline), deadline);
+  await click(cdp, await control(cdp, X_COMPOSER.addPoll, "Add poll", deadline));
   added();
   for (const [i, option] of poll.options.entries()) {
     if (i >= 2)
-      await click(
-        cdp,
-        await control(cdp, X_COMPOSER.addChoice, "Add a choice", deadline),
-        deadline,
-      );
+      await click(cdp, await control(cdp, X_COMPOSER.addChoice, "Add a choice", deadline));
     await click(
       cdp,
       await control(cdp, X_COMPOSER.choice(i + 1), `poll choice ${i + 1}`, deadline),
-      deadline,
     );
     await cdp("Input.insertText", { text: option });
   }
@@ -708,7 +594,7 @@ async function pickGif(
   deadline: number,
   picked: () => void,
 ): Promise<void> {
-  await click(cdp, await control(cdp, X_COMPOSER.gifButton, "Add a GIF", deadline), deadline);
+  await click(cdp, await control(cdp, X_COMPOSER.gifButton, "Add a GIF", deadline));
   const field = await control(cdp, X_COMPOSER.gifSearch, "GIF search", deadline);
   if ((await callOn(cdp, field, FILL, gif.query)) !== true) throw missing("GIF search field");
   // X's id is the provider's behind X's prefix (giphy_<id>), and the preview's URL holds it.
@@ -722,7 +608,7 @@ async function pickGif(
   });
   await cdp("DOM.scrollIntoViewIfNeeded", { nodeId: tile });
   picked();
-  await click(cdp, tile, deadline);
+  await click(cdp, tile);
   // Without the GIF in the composer, Post would send the text alone.
   await control(cdp, X_COMPOSER.removeMedia, "picked GIF", deadline);
   await waitForGone(
@@ -839,11 +725,7 @@ async function pickAudience(
   picked: () => void,
 ): Promise<void> {
   const soon = () => Math.min(Date.now() + CONTROL_TIMEOUT_MS, deadline);
-  await click(
-    cdp,
-    await control(cdp, X_COMPOSER.audienceButton, "Choose audience", deadline),
-    deadline,
-  );
+  await click(cdp, await control(cdp, X_COMPOSER.audienceButton, "Choose audience", deadline));
   const name = normal(community.name);
   const isNamed = (shown: string) =>
     shown === name ||
@@ -870,12 +752,12 @@ async function pickAudience(
       `x.com's card lists more than one "${community.name}" and does not tell which; nothing was posted`,
     );
   picked();
-  await click(cdp, row, deadline);
+  await click(cdp, row);
   if (!(await audienceShows(cdp, community.name, soon())))
     throw missing(`"${community.name}" as the audience`);
   // A card X leaves open would take the presses that follow.
   if ((await query(cdp, X_COMPOSER.audienceCard)).length > 0) {
-    await click(cdp, await control(cdp, TEXTBOX, "text box", deadline), deadline);
+    await click(cdp, await control(cdp, TEXTBOX, "text box", deadline));
     await waitForGone(cdp, X_COMPOSER.audienceCard, soon()).catch(() => {
       throw new NotAttempted("x.com's audience card stayed open; nothing was posted");
     });
@@ -890,38 +772,11 @@ async function pickAudience(
   }
   if (now === null) throw missing(`"${X_COMPOSER.shareLabel}"`);
   if (now === want) return;
-  await click(cdp, await waitForText(cdp, "label", X_COMPOSER.shareLabel, soon()), deadline);
+  await click(cdp, await waitForText(cdp, "label", X_COMPOSER.shareLabel, soon()));
   const deadlineShare = soon();
   while ((await shareState(cdp)) !== want)
     if (Date.now() >= deadlineShare) throw missing(`"${X_COMPOSER.shareLabel}" as asked`);
     else await sleep(POLL_MS);
-}
-
-/** Empties X's text box and resolves with it; fails when X's editor still holds text. */
-async function clearBox(cdp: Cdp, deadline = Infinity): Promise<number> {
-  const box = await control(cdp, TEXTBOX, "text box", deadline);
-  await click(cdp, box, deadline);
-  // Chromium's own selectAll command, so no platform chord; then one Backspace clears it.
-  for (const [key, code, keyCode, commands] of [
-    ["a", "KeyA", 65, ["selectAll"]],
-    ["Backspace", "Backspace", 8, []],
-  ] as const) {
-    await cdp("Input.dispatchKeyEvent", {
-      type: "rawKeyDown",
-      key,
-      code,
-      windowsVirtualKeyCode: keyCode,
-      commands,
-    });
-    await cdp("Input.dispatchKeyEvent", {
-      type: "keyUp",
-      key,
-      code,
-      windowsVirtualKeyCode: keyCode,
-    });
-  }
-  if ((await textOf(cdp, box)) !== "") throw new Error("text left");
-  return box;
 }
 
 /** What the driver put in X's composer, so a refusal before Post can take it back out. */
@@ -989,7 +844,31 @@ async function takeBack(cdp: Cdp, touched: Touched, error: unknown): Promise<Not
       }
       await waitForGone(cdp, X_COMPOSER.removeMedia, soon());
     });
-  if (touched.text) await undo("the text", () => clearBox(cdp));
+  if (touched.text)
+    await undo("the text", async () => {
+      const box = await control(cdp, TEXTBOX, "text box");
+      await click(cdp, box);
+      // Chromium's own selectAll command, so no platform chord; then one Backspace clears it.
+      for (const [key, code, keyCode, commands] of [
+        ["a", "KeyA", 65, ["selectAll"]],
+        ["Backspace", "Backspace", 8, []],
+      ] as const) {
+        await cdp("Input.dispatchKeyEvent", {
+          type: "rawKeyDown",
+          key,
+          code,
+          windowsVirtualKeyCode: keyCode,
+          commands,
+        });
+        await cdp("Input.dispatchKeyEvent", {
+          type: "keyUp",
+          key,
+          code,
+          windowsVirtualKeyCode: keyCode,
+        });
+      }
+      if ((await textOf(cdp, box)) !== "") throw new Error("text left");
+    });
   // Post was never pressed: nothing went to X, whatever stopped it.
   const said = error instanceof Error ? error.message : String(error);
   const message = said.endsWith("nothing was posted") ? said : `${said}; nothing was posted`;
@@ -1008,7 +887,7 @@ export async function postThroughComposer(
   contents: Pick<Electron.WebContents, "loadURL">,
   cdp: Cdp,
   command: Extract<DesktopCommand, { type: "sessionPost" }>,
-  nextCreatedPost: CreatedPosts["next"],
+  nextCreatedPost: () => Promise<string>,
   deadline: number,
 ): Promise<string> {
   const step = (ms: number) => Math.min(Date.now() + ms, deadline);
@@ -1049,7 +928,7 @@ export async function postThroughComposer(
       await pickGif(cdp, command.gif, deadline, () => (touched.media = true));
     // Found again: adding a poll redraws the composer around its text box.
     const box = await waitForNode(cdp, TEXTBOX, step(COMPOSER_TIMEOUT_MS));
-    await click(cdp, box, deadline);
+    await click(cdp, box);
     touched.text = command.text !== "";
     await typeText(cdp, box, command.text, command.styles ?? []);
     if (command.mediaPaths.length > 0) {
@@ -1061,7 +940,8 @@ export async function postThroughComposer(
       touched.media = true;
       await cdp("DOM.setFileInputFiles", { nodeId: input, files: command.mediaPaths });
     }
-    // The button stays disabled while uploads run.
+    // Listening before Post; the button stays disabled while uploads run.
+    const created = nextCreatedPost();
     const post = 'button[data-testid="tweetButton"]';
     await waitForNode(cdp, post, deadline, enabled);
     // Checked again at the press: still closed, and X still names the user's setting.
@@ -1071,25 +951,13 @@ export async function postThroughComposer(
     if (reply !== null)
       await control(cdp, X_COMPOSER.replyButtonFor(reply.label), `"${reply.label}"`, deadline);
     // Found last: each lookup above drops the node ids Chromium handed out before it.
-    return waitForNode(cdp, post, deadline, enabled);
+    return { button: await waitForNode(cdp, post, deadline, enabled), created };
   };
-  const button = await ready().catch(async (error: unknown) => {
+  const { button, created } = await ready().catch(async (error: unknown) => {
     throw await takeBack(cdp, touched, error);
   });
-  // X's answer to the create request this press starts, and none once this command ends.
-  const listening = new AbortController();
-  try {
-    const press = await aim(cdp, button, deadline);
-    const created = nextCreatedPost(
-      { text: command.text, replyTo: command.replyToPostId ?? null, previous: null },
-      listening.signal,
-    );
-    await press();
-    return (await until(created, step(CREATED_TIMEOUT_MS), "x.com did not confirm the post"))
-      .postId;
-  } finally {
-    listening.abort();
-  }
+  await click(cdp, button);
+  return until(created, step(CREATED_TIMEOUT_MS), "x.com did not confirm the post");
 }
 
 /**
@@ -1121,7 +989,7 @@ export async function likeOnPage(
       throw untouched(error);
     });
   if ((await attributes(cdp, button))["data-testid"] === "unlike") return;
-  await click(cdp, button, deadline);
+  await click(cdp, button);
   await waitForNode(cdp, `${article} button[data-testid="unlike"]`, step(CREATED_TIMEOUT_MS)).catch(
     () => {
       throw new Error("x.com did not show the post as liked");
@@ -1175,6 +1043,164 @@ async function ownEditRow(cdp: Cdp, caret: string, deadline: number): Promise<nu
   return ownEditRow(cdp, caret, deadline);
 }
 
+// On the node just before a press: still in X's page, and its control (the button around it) is
+// what a press at (x, y) lands on, not a layer over it.
+const LANDS_ON = `function (x, y) {
+  const control = this.closest('button, [role="button"], [role="menuitem"]') ?? this;
+  return this.isConnected && control.contains(document.elementFromPoint(x, y));
+}`;
+
+/**
+ * The edit's press of X's Update or its confirm, every CDP wait bounded by `deadline`. Before the
+ * press it is refused untouched unless the node is what it lands on in time. Once the press may
+ * have reached X its outcome is uncertain; a gesture that cannot finish is released best-effort
+ * and X's page (`page`) loaded again, so no press stays down and the next command starts clean.
+ */
+async function editPress(
+  contents: Pick<Electron.WebContents, "loadURL">,
+  cdp: Cdp,
+  nodeId: number,
+  deadline: number,
+  page: string,
+): Promise<void> {
+  const late = "x.com's page did not answer before the command's deadline";
+  const { x, y } = await (async () => {
+    const { model } = (await until(cdp("DOM.getBoxModel", { nodeId }), deadline, late)) as {
+      model: { content: Array<number> };
+    };
+    const [x1, y1, , , x2, y2] = model.content as [number, number, number, number, number, number];
+    const at = { x: (x1 + x2) / 2, y: (y1 + y2) / 2 };
+    const objectId = await until(objectOf(cdp, nodeId), deadline, late);
+    const { result } = (await until(
+      cdp("Runtime.callFunctionOn", {
+        objectId,
+        functionDeclaration: LANDS_ON,
+        arguments: [{ value: at.x }, { value: at.y }],
+        returnByValue: true,
+      }),
+      deadline,
+      late,
+    )) as { result: { value: unknown } };
+    if (result.value !== true) throw new Error("x.com's control was covered or gone at the press");
+    if (Date.now() >= deadline) throw new Error(late);
+    return at;
+  })().catch((error: unknown) => {
+    throw untouched(error);
+  });
+  const mouse = (type: string) =>
+    cdp("Input.dispatchMouseEvent", { type, x, y, button: "left", clickCount: 1 });
+  try {
+    await until(mouse("mousePressed"), deadline, late);
+    await until(mouse("mouseReleased"), deadline, late);
+  } catch {
+    void mouse("mouseReleased").catch(() => {});
+    void contents.loadURL(page).catch(() => {});
+    throw new Error(
+      "x.com's press did not finish by the command's deadline; it may have gone through",
+    );
+  }
+}
+
+/** Empties X's text box for the edit and resolves with it; fails when X's editor still holds text. */
+async function clearForEdit(cdp: Cdp, deadline: number): Promise<number> {
+  const box = await control(cdp, TEXTBOX, "text box", deadline);
+  await click(cdp, box);
+  // Chromium's own selectAll command, so no platform chord; then one Backspace clears it.
+  for (const [key, code, keyCode, commands] of [
+    ["a", "KeyA", 65, ["selectAll"]],
+    ["Backspace", "Backspace", 8, []],
+  ] as const) {
+    await cdp("Input.dispatchKeyEvent", {
+      type: "rawKeyDown",
+      key,
+      code,
+      windowsVirtualKeyCode: keyCode,
+      commands,
+    });
+    await cdp("Input.dispatchKeyEvent", {
+      type: "keyUp",
+      key,
+      code,
+      windowsVirtualKeyCode: keyCode,
+    });
+  }
+  if ((await textOf(cdp, box)) !== "") throw new Error("text left");
+  return box;
+}
+
+// A text as X's composer sends it, to compare: whitespace as one space, a t.co link by its shape.
+const asSent = (text: string) =>
+  text
+    .normalize("NFC")
+    .replace(/https:\/\/t\.co\/\w+/g, "https://t.co/")
+    .replace(/\s+/g, " ")
+    .trim();
+const field = (value: unknown, key: string) =>
+  typeof value === "object" && value !== null ? Reflect.get(value, key) : undefined;
+
+/**
+ * X's create requests (CreateTweet, CreateNoteTweet) and their answers while an edit listens, by
+ * DevTools request id: each request's body as it is read (null when the capture could not) and
+ * X's answer to it.
+ */
+export function editCreates() {
+  let open: Map<string, { body?: string | null; postId?: string }> | null = null;
+  return {
+    /** Listens from now; the function it answers stops and forgets. */
+    listen: () => {
+      const mine = new Map<string, { body?: string | null; postId?: string }>();
+      open = mine;
+      return () => {
+        if (open === mine) open = null;
+      };
+    },
+    request: (id: string, body: Promise<string | undefined>) => {
+      if (open === null) return;
+      const entry: { body?: string | null; postId?: string } = {};
+      open.set(id, entry);
+      void body.then(
+        (read) => void (entry.body = read ?? null),
+        () => void (entry.body = null),
+      );
+    },
+    answered: (id: string, postId: string) => {
+      const entry = open?.get(id);
+      if (entry !== undefined) entry.postId = postId;
+    },
+    /**
+     * The edit's new id once X answered the one request that is this edit: its edit target is
+     * `previous` and its whole text `text`. Uncertain when a body could not be read or two requests
+     * are this edit; null while a body is read or X has not answered.
+     */
+    outcome: (previous: string, text: string): { readonly postId: string } | "uncertain" | null => {
+      let mine = 0;
+      let postId: string | undefined;
+      for (const entry of open?.values() ?? []) {
+        if (entry.body === undefined) return null;
+        let variables: unknown;
+        try {
+          variables = entry.body === null ? undefined : field(JSON.parse(entry.body), "variables");
+        } catch {
+          variables = undefined;
+        }
+        if (typeof variables !== "object" || variables === null) return "uncertain";
+        const typed = field(variables, "tweet_text");
+        if (
+          field(field(variables, "edit_options"), "previous_tweet_id") === previous &&
+          typeof typed === "string" &&
+          asSent(typed) === asSent(text)
+        ) {
+          mine++;
+          postId = entry.postId;
+        }
+      }
+      if (mine > 1) return "uncertain";
+      return postId === undefined ? null : { postId };
+    },
+  };
+}
+type EditCreates = ReturnType<typeof editCreates>;
+
 /**
  * Edits the user's own post as they would: X's "..." on its page, the Edit post row of the menu
  * that press opened, X's text replaced in X's composer (styles as sessionPost types them), Update,
@@ -1185,12 +1211,13 @@ export async function editThroughComposer(
   contents: Pick<Electron.WebContents, "loadURL">,
   cdp: Cdp,
   command: Extract<DesktopCommand, { type: "sessionEditPost" }>,
-  nextCreatedPost: CreatedPosts["next"],
+  creates: EditCreates,
   deadline: number,
   allowed: () => Promise<boolean>,
 ): Promise<string> {
   const step = (ms: number) => Math.min(Date.now() + ms, deadline);
   const id = command.postId;
+  const page = `https://x.com/i/web/status/${id}`;
   const evaluate = async (expression: string, awaitPromise = false) =>
     (
       (await cdp("Runtime.evaluate", { expression, returnByValue: true, awaitPromise })) as {
@@ -1217,11 +1244,7 @@ export async function editThroughComposer(
   // links there too, but comes after it on the post's page, so the first match is the post.
   const caret = `article:has(a[href$="/status/${id}"] time, a[href$="/status/${id}/history"] time) ${X_EDIT.caret}`;
   const ready = async () => {
-    await until(
-      contents.loadURL(`https://x.com/i/web/status/${id}`),
-      deadline,
-      "x.com did not load the post",
-    );
+    await until(contents.loadURL(page), deadline, "x.com did not load the post");
     await until(evaluate(HOLD_MENUS, true), deadline, "Xtend kept X's menus busy");
     const shownBy = step(COMPOSER_TIMEOUT_MS);
     let own = (await query(cdp, caret))[0];
@@ -1231,7 +1254,7 @@ export async function editThroughComposer(
       own = (await query(cdp, caret))[0];
     }
     const ownObject = await objectOf(cdp, own);
-    await click(cdp, own, deadline);
+    await click(cdp, own);
     const row = await ownEditRow(cdp, ownObject, step(CONTROL_TIMEOUT_MS)).catch(async (error) => {
       // X's menu, left open, would take the engine's next press.
       for (const type of ["rawKeyDown", "keyUp"] as const)
@@ -1243,12 +1266,12 @@ export async function editThroughComposer(
         });
       throw error;
     });
-    await click(cdp, row, deadline);
+    await click(cdp, row);
     await waitForText(cdp, X_EDIT.button, X_EDIT.word, step(COMPOSER_TIMEOUT_MS)).catch(() => {
       throw new Error("x.com's composer did not open the post to edit");
     });
     await editingIt();
-    const box = await clearBox(cdp, deadline);
+    const box = await clearForEdit(cdp, deadline);
     await typeText(cdp, box, command.text, command.styles ?? []);
     // Checked with no styles too: text typed after what X left would update the post with both.
     const shown = JSON.parse(String(await callOn(cdp, box, EDITOR_TEXT))) as { text: string };
@@ -1264,21 +1287,23 @@ export async function editThroughComposer(
     await mayPress();
     return button;
   };
-  // X's answer to the create request this press starts, and none once this command ends.
-  const listening = new AbortController();
+  let stop = () => {};
   try {
     const button = await ready().catch((error: unknown) => {
       throw unchanged(error);
     });
-    const got: { created?: CreatedPost } = {};
-    const press = await aim(cdp, button, deadline);
-    void nextCreatedPost({ text: command.text, previous: id }, listening.signal).then((created) => {
-      got.created = created;
-    });
-    await press();
+    // X's create requests from the press on; only the one that is this edit counts.
+    stop = creates.listen();
+    await editPress(contents, cdp, button, deadline, page);
     const confirmBy = step(CREATED_TIMEOUT_MS);
     let confirmed = false;
-    while (got.created === undefined) {
+    for (;;) {
+      const outcome = creates.outcome(id, command.text);
+      if (outcome === "uncertain")
+        throw new Error(
+          "x.com's answers could not be told apart as this edit's; it may have gone through",
+        );
+      if (outcome !== null) return outcome.postId;
       if (Date.now() >= confirmBy) throw new Error("x.com did not confirm the edit");
       const [sheet] = confirmed ? [] : await query(cdp, X_EDIT.lastEditConfirm);
       if (sheet !== undefined && (await textOf(cdp, sheet)) === X_EDIT.word) {
@@ -1286,15 +1311,15 @@ export async function editThroughComposer(
         await mayPress().catch((error: unknown) => {
           throw unchanged(error);
         });
-        await click(cdp, sheet, deadline);
+        await editPress(contents, cdp, sheet, deadline, page);
         confirmed = true;
       }
       await sleep(POLL_MS);
     }
-    return got.created.postId;
   } finally {
-    listening.abort();
-    await evaluate(RELEASE_MENUS).catch(() => {});
+    stop();
+    // Bounded too: a page that no longer answers must not hold the queue.
+    await until(evaluate(RELEASE_MENUS), deadline, "late").catch(() => {});
   }
 }
 
@@ -1320,9 +1345,9 @@ export async function dmThroughComposer(
     .catch((error: unknown) => {
       throw untouched(error);
     });
-  await click(cdp, input, deadline);
+  await click(cdp, input);
   await cdp("Input.insertText", { text: command.text });
-  await click(cdp, await waitForNode(cdp, send, step(COMPOSER_TIMEOUT_MS), enabled), deadline);
+  await click(cdp, await waitForNode(cdp, send, step(COMPOSER_TIMEOUT_MS), enabled));
   await waitForNode(cdp, send, step(CREATED_TIMEOUT_MS), (attrs) => !enabled(attrs)).catch(() => {
     throw new Error("x.com did not confirm the message");
   });
@@ -1448,9 +1473,9 @@ async function articleThroughEditor(
       `${error instanceof Error ? error.message : String(error)}; nothing was published, and X keeps the draft it made in its Articles`,
     );
   const ready = async () => {
-    await click(cdp, create, deadline);
+    await click(cdp, create);
     await waitForRoute(cdp, X_ARTICLE.editRoute, step(COMPOSER_TIMEOUT_MS));
-    await click(cdp, await waitForNode(cdp, X_ARTICLE.title, step(COMPOSER_TIMEOUT_MS)), deadline);
+    await click(cdp, await waitForNode(cdp, X_ARTICLE.title, step(COMPOSER_TIMEOUT_MS)));
     await cdp("Input.insertText", { text: command.title });
     if (command.coverPath !== undefined) {
       const input = await waitForNode(cdp, X_ARTICLE.coverInput, step(CONTROL_TIMEOUT_MS));
@@ -1458,7 +1483,6 @@ async function articleThroughEditor(
       await click(
         cdp,
         await waitForNode(cdp, X_ARTICLE.coverApply, step(COMPOSER_TIMEOUT_MS), enabled),
-        deadline,
       );
       // The upload may take what is left.
       await waitForNode(cdp, X_ARTICLE.coverSaved, deadline);
@@ -1470,7 +1494,7 @@ async function articleThroughEditor(
     // Found in the whole page, wherever X's layout puts the editor's app bar.
     const opener = await enabledText(cdp, "body", X_ARTICLE.publishWord, deadline);
     const openerObject = await objectOf(cdp, opener);
-    await click(cdp, opener, deadline);
+    await click(cdp, opener);
     // X's Publish sheet is a dialog on a wide window and the whole route in its compact layout
     // (the engine's usual width), so its fields are found by their own names, in either.
     await waitForNode(cdp, X_ARTICLE.caption, step(COMPOSER_TIMEOUT_MS));
@@ -1481,11 +1505,7 @@ async function articleThroughEditor(
         throw new Error("x.com's Publish dialog did not take who can reply");
     }
     if (command.caption !== undefined) {
-      await click(
-        cdp,
-        await waitForNode(cdp, X_ARTICLE.caption, step(CONTROL_TIMEOUT_MS)),
-        deadline,
-      );
+      await click(cdp, await waitForNode(cdp, X_ARTICLE.caption, step(CONTROL_TIMEOUT_MS)));
       await cdp("Input.insertText", { text: command.caption });
     }
     return sheetPublish(cdp, openerObject, step(CONTROL_TIMEOUT_MS));
@@ -1493,7 +1513,7 @@ async function articleThroughEditor(
   const confirm = await ready().catch((error: unknown) => {
     throw kept(error);
   });
-  await click(cdp, confirm, deadline);
+  await click(cdp, confirm);
   return waitForRoute(cdp, X_ARTICLE.publishedRoute, step(CREATED_TIMEOUT_MS)).catch(() => {
     throw new Error("x.com did not confirm the Article");
   });

@@ -2,7 +2,7 @@ import type { DesktopCommand } from "@xtend/contracts";
 import { expect, it, vi } from "vite-plus/test";
 
 import { fakeTimers } from "../testing/fakeTimers.ts";
-import { createdPosts, editThroughComposer, postThroughComposer } from "./DesktopCommands.ts";
+import { editCreates, editThroughComposer, postThroughComposer } from "./DesktopCommands.ts";
 
 // Deadlines count from this fixed instant on the faked clock.
 const T0 = Date.parse("2026-11-02T12:00:00.000Z");
@@ -413,7 +413,7 @@ const run = async (
     { loadURL: async () => {} },
     domCdp(log),
     command,
-    async () => ({ postId: "777" }),
+    async () => "777",
     T0 + 60_000,
   ).catch((error: unknown) => error);
   await vi.runAllTimersAsync();
@@ -751,11 +751,7 @@ interface EditPage {
  * row opens X's composer on /compose/post, the post's id in the route's state as X's history keeps
  * it, with the post's text. Update sends at once, or after X's confirm on the last edit.
  */
-function fakeEditPage(
-  log: Array<string>,
-  created: ReturnType<typeof createdPosts>,
-  page: EditPage,
-) {
+function fakeEditPage(log: Array<string>, creates: ReturnType<typeof editCreates>, page: EditPage) {
   document.body.innerHTML = `
 <div id="react-root">
   <article><a href="/you/status/701"><time>1m</time></a><button data-testid="caret" data-of="701" aria-haspopup="menu" aria-expanded="false">…</button><div>first take</div></article>
@@ -771,14 +767,20 @@ function fakeEditPage(
   const send = () => {
     const text = layers.querySelector('[data-testid="tweetTextarea_0"]')?.textContent;
     log.push(`create ${text}`);
-    // X's create for what its composer edits (an earlier retry of another post first), then
-    // X's answers to that retry and to this one.
+    // X's create for what its composer edits (an earlier post's retry beside it), as the capture
+    // hands them over, then X's answers.
     const previous = (history.state as { state: { previousTweetId: string } }).state
       .previousTweetId;
-    created.request("r0", { tweet_text: "Earlier post" });
-    created.request("r1", { tweet_text: text, edit_options: { previous_tweet_id: previous } });
-    created.answered("r0", "900");
-    created.answered("r1", "703");
+    const body = (variables: object) => Promise.resolve(JSON.stringify({ variables }));
+    creates.request("r0", body({ tweet_text: "Earlier post" }));
+    creates.request(
+      "r1",
+      body({ tweet_text: text, edit_options: { previous_tweet_id: previous } }),
+    );
+    void Promise.resolve().then(() => {
+      creates.answered("r0", "900");
+      creates.answered("r1", "703");
+    });
   };
   document.body.addEventListener("click", (event) => {
     if (root?.isConnected !== true) return;
@@ -811,23 +813,37 @@ function fakeEditPage(
   });
 }
 
-const edit = async (page: EditPage, allowed = async () => true) => {
+/** The edit on the fake page; `slowPress`: X's page acks the press on Update only past the deadline. */
+const edit = async (page: EditPage, allowed = async () => true, slowPress = false) => {
   using _timers = fakeTimers({ now: T0 });
   const start = location.href;
   const log: Array<string> = [];
-  const created = createdPosts();
-  fakeEditPage(log, created, page);
+  const loads: Array<string> = [];
+  const creates = editCreates();
+  fakeEditPage(log, creates, page);
+  const dom = domCdp(log);
+  const cdp = async (method: string, params: Record<string, unknown> = {}) => {
+    const onUpdate =
+      params.type === "mousePressed" &&
+      document
+        .elementFromPoint(Number(params.x), Number(params.y))
+        ?.closest('[data-testid="tweetButton"]');
+    if (!slowPress || !onUpdate) return dom(method, params);
+    const ack = Promise.withResolvers<unknown>();
+    setTimeout(() => ack.resolve({}), 120_000);
+    return ack.promise;
+  };
   const editing = editThroughComposer(
-    { loadURL: async () => {} },
-    domCdp(log),
+    { loadURL: async (url: string) => void loads.push(url) },
+    cdp,
     { type: "sessionEditPost", postId: "701", text: "second take" },
-    created.next,
+    creates,
     T0 + 60_000,
     allowed,
   ).catch((error: unknown) => error);
   await vi.runAllTimersAsync();
   history.replaceState(null, "", start);
-  return { log, result: await editing };
+  return { log, loads, result: await editing };
 };
 
 it("edits the post through the Edit row of the menu its own press opened, though another opens over it, and X's confirm on the last edit", async () => {
@@ -893,4 +909,14 @@ it("presses neither Update nor X's last-edit confirm unless X's composer is edit
     expect(late.result).toMatchObject({ notAttempted: true });
     expect(late.log).not.toContain("press Update");
   }
+});
+
+it("finishes a press X's page acks only past the deadline, says it may have gone through, and loads X's page again", async () => {
+  const { result, loads } = await edit({ editable: true, lastEdit: false }, undefined, true);
+  expect([(result as Error).message, (result as { notAttempted?: boolean }).notAttempted]).toEqual([
+    "x.com's press did not finish by the command's deadline; it may have gone through",
+    undefined,
+  ]);
+  // The post's page, then once more after the press so no press stays down for the next command.
+  expect(loads).toEqual(["https://x.com/i/web/status/701", "https://x.com/i/web/status/701"]);
 });

@@ -19,7 +19,7 @@ vi.mock("electron", () => import("../testing/fakeElectron.ts"));
 vi.mock("../xSession/SessionCapture.ts", () => ({ attachSessionCapture: () => () => {} }));
 vi.mock("../service/DesktopCommands.ts", () => ({
   attachDesktopCommands: () => ({ save: () => {}, detach: () => {} }),
-  createdPosts: () => ({ next: () => new Promise(() => {}), created: () => {} }),
+  editCreates: () => ({ request: () => {}, answered: () => {} }),
 }));
 
 const open = (extra: Partial<MainWindowOptions> = {}) => {

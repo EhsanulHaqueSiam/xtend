@@ -5,13 +5,11 @@ import type { EngineBatch, GrokCapture, ObservationBatch, ObservedPost } from "@
 import type * as Electron from "electron";
 
 import {
-  type Json,
   isCreateTweetOperation,
   isGraphqlUrl,
   isViewerOperation,
   normalizeGraphqlResponse,
   readCreatedPostId,
-  readCreateVariables,
   readViewerHandle,
   sourceFromOperation,
 } from "./normalizeGraphql.ts";
@@ -52,13 +50,13 @@ export interface SessionCaptureOptions {
   readonly onPosts?: (posts: ReadonlyArray<ObservedPost>, viewerHandle: string | null) => void;
   /** Every response's posts as Xtend's own X screens draw them, tagged with X's operation. */
   readonly onRender?: (batch: EngineBatch) => void;
+  /** The id x.com returned for a post the session just created (CreateTweet), and its request's. */
+  readonly onCreatedPost?: (postId: string, requestId: string) => void;
   /**
-   * X's create request (CreateTweet, CreateNoteTweet) as it goes, by its DevTools id, with its
-   * variables; undefined when its body could not be read.
+   * X's create request as it goes, by its DevTools id, with its body as it is read (undefined when
+   * it cannot be): an edit tells its own request apart by it.
    */
-  readonly onCreateRequest?: (requestId: string, variables: Json | undefined) => void;
-  /** The id of the post X's answer to that create request made. */
-  readonly onCreatedPost?: (requestId: string, postId: string) => void;
+  readonly onCreateRequest?: (requestId: string, body: Promise<string | undefined>) => void;
   /**
    * X's older Grok client's GraphQL answers and streamed answer lines, for the window only: they
    * never reach the service, a log or an observation.
@@ -102,6 +100,26 @@ export function attachSessionCapture(
   let stopped = false;
   let reattachTimer: ReturnType<typeof setTimeout> | undefined;
 
+  // A long post's body may come in parts (postDataEntries) or not at all, then only on request.
+  const createBody = async (requestId: string, request: Record<string, unknown> | undefined) => {
+    if (typeof request?.postData === "string") return request.postData;
+    const parts = Array.isArray(request?.postDataEntries) ? request.postDataEntries : [];
+    if (parts.length > 0)
+      return parts
+        .map((p) =>
+          isRecord(p) && typeof p.bytes === "string"
+            ? Buffer.from(p.bytes, "base64").toString("utf8")
+            : "",
+        )
+        .join("");
+    return debug
+      .sendCommand("Network.getRequestPostData", { requestId })
+      .then((r: { postData?: unknown }) =>
+        typeof r.postData === "string" ? r.postData : undefined,
+      )
+      .catch(() => undefined);
+  };
+
   const onMessage = (_event: Electron.Event, method: string, params: unknown) => {
     if (!isRecord(params) || typeof params.requestId !== "string") return;
     if (method === "Network.requestWillBeSent") {
@@ -112,7 +130,7 @@ export function attachSessionCapture(
         if (postData.size > MAX_PENDING) postData.delete(postData.keys().next().value!);
       }
       if (isCreateTweetOperation(url))
-        options.onCreateRequest?.(params.requestId, readCreateVariables(request?.postData));
+        options.onCreateRequest?.(params.requestId, createBody(params.requestId, request));
       if (isGrokStreamUrl(url)) {
         streamChats.set(params.requestId, grokConversation(url, request?.postData));
         if (streamChats.size > MAX_PENDING) streamChats.delete(streamChats.keys().next().value!);
@@ -262,7 +280,7 @@ export function attachSessionCapture(
     const posts = normalizeGraphqlResponse(body);
     if (isCreateTweetOperation(url)) {
       const created = readCreatedPostId(body) ?? posts[0]?.postId;
-      if (created !== undefined) options.onCreatedPost?.(requestId, created);
+      if (created !== undefined) options.onCreatedPost?.(created, requestId);
     }
     if (posts.length === 0) return;
     const viewer = viewerHandle ?? options.fallbackViewer?.() ?? null;

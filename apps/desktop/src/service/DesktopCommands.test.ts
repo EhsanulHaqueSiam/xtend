@@ -5,9 +5,8 @@ import type { XPost } from "@xtend/contracts";
 import type { OverlaySave } from "../ipc/channels.ts";
 import {
   commandRunner,
-  type CreatedPost,
-  createdPosts,
   dmThroughComposer,
+  editCreates,
   likeOnPage,
   overlaySaver,
   postThroughComposer,
@@ -48,12 +47,6 @@ it("types into the compose modal, not the inline composer behind it, and presses
           return { attributes: ["aria-disabled", "true"] };
         }
         return { attributes: [] };
-      case "DOM.resolveNode":
-        return { object: { objectId: String(params.nodeId) } };
-      // The node is what a press at its middle lands on.
-      case "Runtime.callFunctionOn":
-        if (params.objectId === "23") log.push("Post checked");
-        return { result: { value: true } };
       case "DOM.getBoxModel":
         return { model: { content: BOXES[Number(params.nodeId)] } };
       case "Input.dispatchMouseEvent":
@@ -74,9 +67,9 @@ it("types into the compose modal, not the inline composer behind it, and presses
     { loadURL: async (url) => void loaded.push(url) },
     cdp,
     { type: "sessionPost", text: "hello", mediaPaths: ["/tmp/a.png"], replyToPostId: "42" },
-    (expected) => {
-      log.push(`listening for ${JSON.stringify(expected)}`);
-      return Promise.resolve({ postId: "777" });
+    () => {
+      log.push("listening for CreateTweet");
+      return Promise.resolve("777");
     },
     T0 + 60_000,
   );
@@ -89,11 +82,8 @@ it("types into the compose modal, not the inline composer behind it, and presses
     "press 200,70",
     "type hello",
     "files 22 /tmp/a.png",
-    // Listening for this post (its text, its reply target) only once the upload let Post go and
-    // the press is checked, just before the press that sends it.
+    "listening for CreateTweet",
     "button disabled",
-    "Post checked",
-    'listening for {"text":"hello","replyTo":"42","previous":null}',
     "press 530,218",
   ]);
 });
@@ -120,11 +110,6 @@ const composer = (log: Array<string>, uploadedAt = 0) => ({
               ? ["aria-disabled", "true"]
               : [],
         };
-      case "DOM.resolveNode":
-        return { object: { objectId: String(params.nodeId) } };
-      // The node is what a press at its middle lands on.
-      case "Runtime.callFunctionOn":
-        return { result: { value: true } };
       case "DOM.getBoxModel":
         return { model: { content: BOXES[Number(params.nodeId)] } };
       case "Input.dispatchMouseEvent":
@@ -154,8 +139,8 @@ it("waits for a long video upload, past the 15s the composer itself gets", async
     navigate: () => {},
     // X answers a second after Post, on the faked clock.
     nextCreatedPost: () => {
-      const created = Promise.withResolvers<CreatedPost>();
-      setTimeout(() => created.resolve({ postId: "9" }), 1_000);
+      const created = Promise.withResolvers<string>();
+      setTimeout(() => created.resolve("9"), 1_000);
       return created.promise;
     },
     sessionPostingEnabled: async () => true,
@@ -185,7 +170,7 @@ it("runs a post that arrives over a new socket only after the one orphaned by th
     },
     cdp: page.cdp,
     navigate: () => {},
-    nextCreatedPost: async () => ({ postId: ids.shift()! }),
+    nextCreatedPost: async () => ids.shift()!,
     sessionPostingEnabled: async () => true,
   });
 
@@ -243,22 +228,16 @@ it("gives up on a composer that never loads by the limit, and refuses what waite
   expect(log).toEqual(["load https://x.com/compose/post"]);
 });
 
-it("refuses a post while session posting is off, or once the service stopped waiting, before touching the page", async () => {
-  vi.useFakeTimers({ now: T0 });
+it("refuses a post while session posting is off, before touching the page", async () => {
   const log: Array<string> = [];
   const run = commandRunner({
     ...composer(log),
     navigate: () => {},
-    nextCreatedPost: async () => ({ postId: "1" }),
+    nextCreatedPost: async () => "1",
     sessionPostingEnabled: async () => false,
   });
   await expect(run(post("hi"))).rejects.toMatchObject({
     message: "session posting is off in Settings",
-    notAttempted: true,
-  });
-  // Read late, behind a long command, past the deadline the service sent with it.
-  await expect(run(post("late"), T0 - 1)).rejects.toMatchObject({
-    message: "sessionPost waited out its time behind another command",
     notAttempted: true,
   });
   expect(log).toEqual([]);
@@ -347,11 +326,7 @@ it("likes the post's own article on its page, waits for X to show it liked, and 
   const article = 'article:has(a[href$="/status/9"] time)';
   const either = `${article} button[data-testid="like"], ${article} button[data-testid="unlike"]`;
   const presses: Array<string> = [];
-  /**
-   * `late`: X's page answers only after the deadline; `covered`: another layer sits on the button;
-   * `slow`: the press went out in time but X's page took its reply past the deadline.
-   */
-  const page = (likedAlready: boolean, press: "ok" | "late" | "covered" | "slow" = "ok") => {
+  const page = (likedAlready: boolean) => {
     let liked = likedAlready;
     return async (method: string, params: Record<string, unknown> = {}) => {
       switch (method) {
@@ -364,25 +339,9 @@ it("likes the post's own article on its page, waits for X to show it liked, and 
           throw new Error(`unexpected selector ${String(params.selector)}`);
         case "DOM.getAttributes":
           return { attributes: ["data-testid", liked ? "unlike" : "like"] };
-        case "DOM.getBoxModel": {
-          const box = { model: { content: [0, 0, 20, 0, 20, 20, 0, 20] } };
-          if (press !== "late") return box;
-          // On the faked clock, X's page answers five seconds past the like's deadline.
-          const answer = Promise.withResolvers<typeof box>();
-          setTimeout(() => answer.resolve(box), 10_000);
-          return answer.promise;
-        }
-        case "DOM.resolveNode":
-          return { object: { objectId: "5" } };
-        // Whether the button is what a press at its middle lands on.
-        case "Runtime.callFunctionOn":
-          return { result: { value: press !== "covered" } };
+        case "DOM.getBoxModel":
+          return { model: { content: [0, 0, 20, 0, 20, 20, 0, 20] } };
         case "Input.dispatchMouseEvent":
-          if (params.type === "mousePressed" && press === "slow") {
-            const reply = Promise.withResolvers<object>();
-            setTimeout(() => reply.resolve({}), 10_000);
-            return reply.promise;
-          }
           if (params.type === "mouseReleased") {
             presses.push("like");
             liked = true;
@@ -405,27 +364,6 @@ it("likes the post's own article on its page, waits for X to show it liked, and 
   }
   expect(loaded).toEqual(["https://x.com/i/web/status/9", "https://x.com/i/web/status/9"]);
   expect(presses).toEqual(["like"]);
-
-  // Past the deadline by the time X's page answered, or covered at the press: nothing pressed, so
-  // the service may send it again.
-  for (const press of ["late", "covered"] as const) {
-    vi.setSystemTime(T0);
-    const liking = likeOnPage(contents, page(false, press), "9", T0 + 5_000).catch((e) => e);
-    await vi.runAllTimersAsync();
-    await expect(liking).resolves.toMatchObject({ notAttempted: true });
-  }
-  expect(presses).toEqual(["like"]);
-
-  // Pressed in time but released after the deadline: the press is finished, and may have counted.
-  vi.setSystemTime(T0);
-  const slow = likeOnPage(contents, page(false, "slow"), "9", T0 + 5_000).catch((e) => e);
-  await vi.runAllTimersAsync();
-  const outcome = await slow;
-  expect([outcome.message, outcome.notAttempted]).toEqual([
-    "x.com's press ended after the command's deadline; it may have gone through",
-    undefined,
-  ]);
-  expect(presses).toEqual(["like", "like"]);
 });
 
 it("DMs through X's message composer, presses Send once it enables, and waits for X to clear it", async () => {
@@ -446,10 +384,6 @@ it("DMs through X's message composer, presses Send once it enables, and waits fo
         return {
           attributes: params.nodeId === 32 && typed === "" ? ["aria-disabled", "true"] : [],
         };
-      case "DOM.resolveNode":
-        return { object: { objectId: String(params.nodeId) } };
-      case "Runtime.callFunctionOn":
-        return { result: { value: true } };
       case "DOM.getBoxModel":
         return {
           model: {
@@ -505,38 +439,68 @@ it("refuses a DM untouched when X's message composer never draws", async () => {
   expect(log).toEqual(["load https://x.com/messages/compose?recipient_id=42"]);
 });
 
-it("hands a command only the answer to its own create request: its text, reply target and edit target", async () => {
-  const created = createdPosts();
-  const edit = { text: "Fixed  the\ntypo", replyTo: null, previous: "701" };
-  const press = new AbortController();
-  const mine = created.next(edit, press.signal);
-  // A delayed retry of an earlier post, a reply, another post's edit, a body the capture could not
-  // read: none is this press's, though each was sent once it listened.
-  created.request("r0", { tweet_text: "Earlier post" });
-  created.request("r1", {
-    tweet_text: "Fixed the typo",
-    reply: { in_reply_to_tweet_id: "5" },
-    edit_options: { previous_tweet_id: "701" },
+it("refuses a command untouched once the deadline the service sent with it has passed", async () => {
+  vi.useFakeTimers({ now: T0 });
+  const log: Array<string> = [];
+  const run = commandRunner({
+    ...composer(log),
+    navigate: (url) => log.push(`navigate ${url}`),
+    nextCreatedPost: async () => "1",
+    sessionPostingEnabled: async () => true,
   });
-  created.request("r2", {
-    tweet_text: "Fixed the typo",
-    edit_options: { previous_tweet_id: "702" },
+  // Read late, behind a long command: its own limit is not used up, the service's deadline is.
+  await expect(
+    run({ type: "sessionNavigate", url: "https://x.com/home" }, T0 - 1),
+  ).rejects.toMatchObject({
+    message: "sessionNavigate waited out its time behind another command",
+    notAttempted: true,
   });
-  created.request("r3", undefined);
-  // X's composer sends the text as typed, its whitespace as it keeps it.
-  created.request("r4", {
-    tweet_text: "Fixed the typo",
-    edit_options: { previous_tweet_id: "701" },
-  });
-  for (const id of ["r0", "r1", "r2", "r3"]) created.answered(id, `9${id}`);
-  created.answered("r4", "703");
-  await expect(mine).resolves.toEqual({ postId: "703" });
+  expect(log).toEqual([]);
+});
 
-  // A command that gave up hears nothing.
-  const gaveUp = new AbortController();
-  const stale = created.next({ text: "Later", replyTo: null, previous: null }, gaveUp.signal);
-  gaveUp.abort();
-  created.request("r5", { tweet_text: "Later" });
-  created.answered("r5", "904");
-  await expect(Promise.race([stale, Promise.resolve("never heard")])).resolves.toBe("never heard");
+it("takes as an edit's answer only X's answer to the one request that is that edit", async () => {
+  const body = (text: string, previous: string) =>
+    Promise.resolve(
+      JSON.stringify({
+        variables: { tweet_text: text, edit_options: { previous_tweet_id: previous } },
+      }),
+    );
+  const outcome = async (
+    requests: ReadonlyArray<readonly [string, Promise<string | undefined>]>,
+  ) => {
+    const creates = editCreates();
+    // A request sent before the press is never one of its own.
+    creates.request("r0", body("Fixed the typo", "701"));
+    const stop = creates.listen();
+    for (const [id, sent] of requests) creates.request(id, sent);
+    await Promise.resolve();
+    for (const [id] of requests) creates.answered(id, `9${id.slice(1)}`);
+    creates.answered("r0", "900");
+    const result = creates.outcome("701", "Fixed  the\ntypo");
+    stop();
+    return result;
+  };
+  // Its whole text (whitespace as X sends it) and its edit target, nothing less.
+  expect(
+    await outcome([
+      ["r1", body("Fixed the typo and more", "701")],
+      ["r2", body("Fixed the typo", "702")],
+      ["r3", body("Fixed the typo", "701")],
+    ]),
+  ).toEqual({ postId: "93" });
+  // A body the capture could not read, or two requests that are this edit: uncertain.
+  expect(
+    await outcome([
+      ["r1", Promise.resolve(undefined)],
+      ["r3", body("Fixed the typo", "701")],
+    ]),
+  ).toBe("uncertain");
+  expect(
+    await outcome([
+      ["r1", body("Fixed the typo", "701")],
+      ["r3", body("Fixed the typo", "701")],
+    ]),
+  ).toBe("uncertain");
+  // A body still being read: wait for it.
+  expect(await outcome([["r1", new Promise<string>(() => {})]])).toBe(null);
 });

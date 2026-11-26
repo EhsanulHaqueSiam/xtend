@@ -648,9 +648,9 @@ export const emptyEngine: EngineState = {
 const later = (a: string, b: string) => a.length > b.length || (a.length === b.length && a > b);
 
 /**
- * `known` with each edited post's versions (its history in `posts`) pointing at the newest one
- * the store `has`: a version X named but never sent stays out until it comes. A late copy of an
- * older version never moves one back; `known` itself when nothing changed.
+ * `known` with each edited post's versions (its history, else the chain an earlier answer put it
+ * in) pointing at the newest one the store `has`; one it lacks waits on that until it comes, then
+ * drops its alias. A late copy never moves one back; `known` itself when nothing changed.
  */
 function newestVersions(
   known: ReadonlyMap<string, string>,
@@ -659,13 +659,18 @@ function newestVersions(
 ): ReadonlyMap<string, string> {
   let copy: Map<string, string> | null = null;
   for (const p of posts) {
-    if (p.edits.length < 2) continue;
-    const newest = [p.postId, ...p.edits.map((id) => (copy ?? known).get(id) ?? id)]
-      .filter((id) => has.has(id))
-      .reduce((a, b) => (later(b, a) ? b : a));
-    for (const id of p.edits)
-      if (id !== newest && (copy ?? known).get(id) !== newest)
-        (copy ??= new Map(known)).set(id, newest);
+    const now = copy ?? known;
+    if (p.edits.length < 2 && !now.has(p.postId)) continue;
+    const chain = new Set([p.postId, ...p.edits]);
+    for (const id of chain) chain.add(now.get(id) ?? id);
+    for (const [id, target] of now) if (chain.has(target)) chain.add(id);
+    const newest = [...chain].filter((id) => has.has(id)).reduce((a, b) => (later(b, a) ? b : a));
+    for (const id of chain)
+      if (id === newest ? now.has(id) : now.get(id) !== newest) {
+        copy ??= new Map(known);
+        if (id === newest) copy.delete(id);
+        else copy.set(id, newest);
+      }
   }
   return copy ?? known;
 }

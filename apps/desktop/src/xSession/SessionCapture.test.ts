@@ -7,7 +7,7 @@ import type { EngineBatch, GrokCapture, ObservationBatch } from "@xtend/contract
 import type * as Electron from "electron";
 import { afterEach, beforeEach, expect, it, vi } from "vite-plus/test";
 
-import { attachSessionCapture, type SessionCaptureOptions } from "./SessionCapture.ts";
+import { attachSessionCapture } from "./SessionCapture.ts";
 
 const GRAPHQL = "https://x.com/i/api/graphql/abc";
 
@@ -37,6 +37,8 @@ class FakeDebugger extends NodeEvents.EventEmitter {
   /** DevTools' answer to a streaming read: what it buffered before the read began. */
   streamRead: Promise<{ bufferedData?: string }> = Promise.resolve({});
   private readonly bodies = new Map<string, { body: string; base64Encoded: boolean }>();
+  /** Request bodies DevTools keeps only for asking (a long post's). */
+  readonly requestBodies = new Map<string, string>();
 
   attach() {
     if (this.held) throw new Error("Another debugger is already attached");
@@ -51,6 +53,8 @@ class FakeDebugger extends NodeEvents.EventEmitter {
   async sendCommand(method: string, params?: { requestId?: string }) {
     this.commands.push(method);
     if (method === "Network.streamResourceContent") return this.streamRead;
+    if (method === "Network.getRequestPostData")
+      return { postData: this.requestBodies.get(params?.requestId ?? "") };
     if (method !== "Network.getResponseBody") return {};
     const body = this.bodies.get(params?.requestId ?? "");
     if (body === undefined) throw new Error("No resource with given identifier found");
@@ -89,10 +93,11 @@ let serviceUp: boolean;
 let serviceStatus: number;
 let detach: () => void;
 
-/** What the capture says of X's creates: each request as it goes, each answer with its post. */
-type Creates = Pick<SessionCaptureOptions, "onCreateRequest" | "onCreatedPost">;
-
-const start = (creates: Creates = {}, accountId = 1, onRender?: (batch: EngineBatch) => void) => {
+const start = (
+  onCreatedPost?: (postId: string) => void,
+  accountId = 1,
+  onRender?: (batch: EngineBatch) => void,
+) => {
   const contents = { debugger: debug } as unknown as Electron.WebContents;
   detach = attachSessionCapture(contents, {
     ...(onRender === undefined ? {} : { onRender }),
@@ -101,7 +106,7 @@ const start = (creates: Creates = {}, accountId = 1, onRender?: (batch: EngineBa
     accountId,
     queueDir,
     log: () => {},
-    ...creates,
+    ...(onCreatedPost === undefined ? {} : { onCreatedPost }),
   });
 };
 
@@ -133,11 +138,7 @@ afterEach(() => {
 
 it("sends the posts in GraphQL responses the window received, base64 bodies too, and nothing else", async () => {
   const created: Array<string> = [];
-  start({
-    onCreateRequest: (requestId, variables) =>
-      created.push(`request ${requestId} ${JSON.stringify(variables)}`),
-    onCreatedPost: (requestId, postId) => created.push(`answer ${requestId} ${postId}`),
-  });
+  start((postId) => created.push(postId));
   debug.received("1", `${GRAPHQL}/Viewer`, {
     data: { viewer: { user_results: { result: { core: { screen_name: "LevelsIO" } } } } },
   });
@@ -160,31 +161,7 @@ it("sends the posts in GraphQL responses the window received, base64 bodies too,
     data: { notetweet_create: { tweet_results: { result: { ...result, rest_id: "10" } } } },
   });
   debug.finished("5");
-  await vi.waitFor(() => expect(created).toEqual(["answer 4 9", "answer 5 10"]));
-  // Each create request as it goes, by its id, with its variables; a body the capture cannot read
-  // has none.
-  const ask = (requestId: string, postData: string | undefined) =>
-    debug.emit("message", {}, "Network.requestWillBeSent", {
-      requestId,
-      request: { url: `${GRAPHQL}/CreateTweet`, postData },
-    });
-  ask("6", JSON.stringify({ variables: { edit_options: { previous_tweet_id: "9" } } }));
-  ask("7", JSON.stringify({ variables: { tweet_text: "new" } }));
-  ask("8", undefined);
-  debug.received("6", `${GRAPHQL}/CreateTweet`, {
-    data: { create_tweet: { tweet_results: { result: { ...result, rest_id: "11" } } } },
-  });
-  debug.finished("6");
-  await vi.waitFor(() =>
-    expect(created).toEqual([
-      "answer 4 9",
-      "answer 5 10",
-      'request 6 {"edit_options":{"previous_tweet_id":"9"}}',
-      'request 7 {"tweet_text":"new"}',
-      "request 8 undefined",
-      "answer 6 11",
-    ]),
-  );
+  await vi.waitFor(() => expect(created).toEqual(["9", "10"]));
 });
 
 it("hands a Space recording's captions from X's chat lines to the screens only, never the service", async () => {
@@ -581,5 +558,47 @@ it("hands the window the conversation X creates for a new chat", async () => {
   debug.finished("1");
   await vi.waitFor(() =>
     expect(heard).toMatchObject([{ kind: "graphql", op: "CreateGrokConversation", body: created }]),
+  );
+});
+
+it("hands an edit each create request's body by its id, inline, in parts or asked of DevTools, and each answer's id", async () => {
+  const seen: Array<string> = [];
+  detach = attachSessionCapture({ debugger: debug } as unknown as Electron.WebContents, {
+    serviceUrl: "http://127.0.0.1:4820",
+    serviceToken: "tok",
+    accountId: 1,
+    queueDir,
+    log: () => {},
+    onCreateRequest: (requestId, body) => void body.then((b) => seen.push(`${requestId} ${b}`)),
+    onCreatedPost: (postId, requestId) => seen.push(`answer ${requestId} ${postId}`),
+  });
+  const ask = (requestId: string, request: Record<string, unknown>) =>
+    debug.emit("message", {}, "Network.requestWillBeSent", {
+      requestId,
+      request: { url: `${GRAPHQL}/CreateNoteTweet`, ...request },
+    });
+  ask("1", { postData: "inline" });
+  ask("2", {
+    postDataEntries: [
+      { bytes: Buffer.from("in ").toString("base64") },
+      { bytes: Buffer.from("parts").toString("base64") },
+    ],
+  });
+  debug.requestBodies.set("3", "asked");
+  ask("3", { hasPostData: true });
+  ask("4", {});
+  const { __typename: _, ...result } = tweet("9");
+  debug.received("1", `${GRAPHQL}/CreateNoteTweet`, {
+    data: { notetweet_create: { tweet_results: { result } } },
+  });
+  debug.finished("1");
+  await vi.waitFor(() =>
+    expect(seen.toSorted()).toEqual([
+      "1 inline",
+      "2 in parts",
+      "3 asked",
+      "4 undefined",
+      "answer 1 9",
+    ]),
   );
 });

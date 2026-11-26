@@ -264,16 +264,6 @@ export function readCreatedPostId(body: unknown): string | undefined {
   return id !== undefined && X_ID.test(id) ? id : undefined;
 }
 
-/** The variables of X's create request body; undefined when the body is not there or not JSON. */
-export function readCreateVariables(postData: unknown): Json | undefined {
-  try {
-    const variables: unknown = JSON.parse(String(postData)).variables;
-    return isRecord(variables) ? variables : undefined;
-  } catch {
-    return undefined;
-  }
-}
-
 export const isViewerOperation = (url: string): boolean =>
   /\/i\/api\/graphql\/[^/]+\/Viewer(\?|$)/.test(url);
 

@@ -1262,8 +1262,14 @@ it("puts the user's new reply under the post it answers, a new post on top of Ho
   expect(at(state.lists, "following").map((id) => postOn(state, "following", id)?.postId)).toEqual(
     shown,
   );
-  state = mergeBatch(state, batch("TweetDetail", [{ ...only13, postId: "14" }], { key: "14" }));
+  // 14 arrives without its history (X left the edit out of this answer): known as 13's newer
+  // version all the same, it takes the place, and no alias sends it back to 13.
+  state = mergeBatch(
+    state,
+    batch("TweetDetail", [{ ...only13, postId: "14", edits: [] }], { key: "14" }),
+  );
   expect(at(state.lists, "following")).toEqual(shown.map((id) => (id === "13" ? "14" : id)));
+  expect([state.latest.get("14"), state.latest.get("10")]).toEqual([undefined, "14"]);
   // An answer that tells nothing new keeps the same versions.
   expect(
     mergeBatch(state, batch("TweetDetail", [{ ...quote, postId: "11", edits: ["10", "11"] }]))
