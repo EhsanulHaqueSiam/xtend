@@ -1,4 +1,4 @@
-import { useNavigate } from "@tanstack/react-router";
+import { defaultStringifySearch, useNavigate } from "@tanstack/react-router";
 import type { EngineEntities, TextStyle } from "@xtend/contracts";
 import type { MouseEvent } from "react";
 
@@ -10,7 +10,7 @@ const TOKEN =
   /(https:\/\/t\.co\/\w+)|(^|[^\w@])(@\w{1,15})|(^|[^\w&])(#[\p{L}\p{N}_]*\p{L}[\p{L}\p{N}_]*|\$[A-Za-z]{1,6}(?![\w]))/gu;
 
 /**
- * Where an x.com link opens inside Xtend: a post, an Article, a profile, a search or a Community get Xtend's own screen;
+ * Where an x.com link opens inside Xtend: every x.com page Xtend draws gets its own screen;
  * anything else on x.com, or off it, is null and opens in the browser.
  */
 export function xtendRoute(href: string): string | null {
@@ -59,14 +59,63 @@ export function xtendRoute(href: string): string | null {
       ? `/nba?tab=${tab}`
       : null;
   }
+  if (first === "i" && second === "lists" && third !== undefined && /^\d+$/.test(third)) {
+    if (fourth === undefined) return `/lists/${third}`;
+    return fourth === "members" || fourth === "followers"
+      ? `/lists/${third}/people?of=${fourth}`
+      : null;
+  }
+  if (first === "i" && second === "spaces" && third !== undefined && fourth === undefined)
+    return /^\w+$/.test(third) ? `/spaces/${third}` : null;
+  if (first === "i" && second === "bookmarks" && fourth === undefined) {
+    if (third === undefined) return "/bookmarks";
+    return /^\d+$/.test(third) ? `/bookmarks${defaultStringifySearch({ folder: third })}` : null;
+  }
+  if (first === "explore") return second === undefined ? "/explore" : null;
+  if (first === "notifications") {
+    if (second === undefined) return "/notifications";
+    return second === "mentions" ? "/notifications?tab=mentions" : null;
+  }
   if (first === undefined || first === "i" || first === "home") return null;
-  if (second === "status" && third !== undefined && /^\d+$/.test(third))
-    return `/post/${third}?h=${first}`;
+  if (second === "status" && third !== undefined && /^\d+$/.test(third)) {
+    const activity = fourth === undefined ? undefined : ACTIVITY.get(fourth);
+    return activity === undefined
+      ? `/post/${third}?h=${first}`
+      : `/post/${third}/activity?h=${first}&tab=${activity}`;
+  }
   // An X Article's reader, by the post that carries it.
   if (second === "article" && third !== undefined && /^\d+$/.test(third))
     return `/article/${third}?h=${first}`;
-  return second === undefined && /^\w{1,15}$/.test(first) ? `/u/${first}` : null;
+  if (!/^\w{1,15}$/.test(first) || third !== undefined) return null;
+  if (second === undefined) return `/u/${first}`;
+  if (PEOPLE.has(second)) return `/u/${first}/people?tab=${second}`;
+  const tab = PROFILE_TABS.get(second);
+  return tab === undefined ? null : `/u/${first}?tab=${tab}`;
 }
+
+/** X's Post activity pages under a post, by the tab Xtend's activity screen calls each. */
+const ACTIVITY: ReadonlyMap<string, string> = new Map([
+  ["quotes", "quotes"],
+  ["retweets", "reposts"],
+  ["likes", "likes"],
+]);
+/** X's people pages under a profile; each is the tab id of Xtend's people screen. */
+const PEOPLE: ReadonlySet<string> = new Set([
+  "followers",
+  "following",
+  "verified_followers",
+  "followers_you_follow",
+]);
+/** X's profile tab paths, by the tab Xtend's profile screen calls each. */
+const PROFILE_TABS: ReadonlyMap<string, string> = new Map([
+  ["with_replies", "replies"],
+  ["reposts", "reposts"],
+  ["subs", "subs"],
+  ["highlights", "highlights"],
+  ["articles", "articles"],
+  ["media", "media"],
+  ["likes", "likes"],
+]);
 
 type Piece =
   | { readonly kind: "text"; readonly text: string; readonly at: number }

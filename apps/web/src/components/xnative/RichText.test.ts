@@ -46,8 +46,42 @@ it("opens x.com posts, Articles, profiles, searches, the Follow page and Communi
   expect(xtendRoute("https://x.com/i/nba/standings")).toBe("/nba?tab=standings");
   expect(xtendRoute("https://x.com/i/nba/media")).toBeNull();
   // X's own pages Xtend does not draw, and other sites, open in the browser.
-  expect(xtendRoute("https://x.com/i/spaces/1")).toBeNull();
   expect(xtendRoute("https://x.com/home")).toBeNull();
   expect(xtendRoute("https://levels.io/vps")).toBeNull();
   expect(xtendRoute("not a url")).toBeNull();
+});
+
+it("opens X's Lists, Spaces, people, profile tabs, post activity, Explore, Notifications and Bookmarks in Xtend", () => {
+  expect(xtendRoute("https://x.com/i/lists/77")).toBe("/lists/77");
+  expect(xtendRoute("https://x.com/i/lists/77/members")).toBe("/lists/77/people?of=members");
+  expect(xtendRoute("https://x.com/i/lists/77/followers")).toBe("/lists/77/people?of=followers");
+  expect(xtendRoute("https://x.com/i/spaces/1YqKDqDXAbMKV")).toBe("/spaces/1YqKDqDXAbMKV");
+  expect(xtendRoute("https://x.com/rauchg/followers")).toBe("/u/rauchg/people?tab=followers");
+  expect(xtendRoute("https://x.com/rauchg/following")).toBe("/u/rauchg/people?tab=following");
+  expect(xtendRoute("https://x.com/rauchg/verified_followers")).toBe(
+    "/u/rauchg/people?tab=verified_followers",
+  );
+  expect(xtendRoute("https://x.com/rauchg/with_replies")).toBe("/u/rauchg?tab=replies");
+  expect(xtendRoute("https://x.com/rauchg/media")).toBe("/u/rauchg?tab=media");
+  expect(xtendRoute("https://x.com/rauchg/status/123/quotes")).toBe(
+    "/post/123/activity?h=rauchg&tab=quotes",
+  );
+  expect(xtendRoute("https://x.com/rauchg/status/123/retweets")).toBe(
+    "/post/123/activity?h=rauchg&tab=reposts",
+  );
+  expect(xtendRoute("https://x.com/rauchg/status/123/likes")).toBe(
+    "/post/123/activity?h=rauchg&tab=likes",
+  );
+  expect(xtendRoute("https://x.com/explore")).toBe("/explore");
+  expect(xtendRoute("https://x.com/notifications")).toBe("/notifications");
+  expect(xtendRoute("https://x.com/notifications/mentions")).toBe("/notifications?tab=mentions");
+  expect(xtendRoute("https://x.com/i/bookmarks")).toBe("/bookmarks");
+  // A folder id is all digits, so it goes quoted the way the router writes a numeric-looking string.
+  expect(xtendRoute("https://x.com/i/bookmarks/1800000000000000001")).toBe(
+    "/bookmarks?folder=%221800000000000000001%22",
+  );
+  // A post's photo still opens the post; X's own pages under these stay X's.
+  expect(xtendRoute("https://x.com/rauchg/status/123/photo/1")).toBe("/post/123?h=rauchg");
+  expect(xtendRoute("https://x.com/i/lists/77/info")).toBeNull();
+  expect(xtendRoute("https://x.com/rauchg/lists")).toBeNull();
 });
