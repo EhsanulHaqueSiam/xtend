@@ -89,21 +89,25 @@ trends read).
   are what the worker calls; run them by hand to test a schema change. `pool_flush` returns the
   accepted count, the pushes it dropped and the installs it did not know.
 - Local check: a local Postgres with the schema applied, then the worker on it (logged in: dev
-  still reads the Hyperdrive config by id) and one pass through every route. Set `DEV_DB` to that
-  Postgres's URL, and use the URL dev prints: 1337 unless another checkout holds it.
+  still reads the Hyperdrive config by id) and register, push, the hourly flush and trends. Set
+  `DEV_DB` to that Postgres's URL, and use the URL dev prints: 1337 unless another checkout holds
+  it.
 
   ```sh
   XTEND_POOL_DEV_URL="$DEV_DB" pnpm --filter @xtend/pool dev  # DEV_DB=postgres://u:p@127.0.0.1/pool
+  curl localhost:1337/trends/hot                    # {"posts":0,"installs":0,"rows":[]}
   curl -XPOST localhost:1337/register                       # {"installId":"..."}: set ID to it
   curl -XPOST localhost:1337/push -H "x-install: $ID" -d '{"items":[{"post":{"postId":"1",
     "text":"hi","createdAt":"2026-01-01T00:00:00Z","author":{"userId":"2","handle":"a"}},
     "metrics":{"views":1,"likes":0,"reposts":0,"replies":0,"quotes":0,"bookmarks":0}}]}'  # 202
-  curl "localhost:1337/cdn-cgi/handler/scheduled?cron=0+*+*+*+*"        # flushes
+  curl "localhost:1337/cdn-cgi/handler/scheduled?cron=0+*+*+*+*"        # ok
   curl localhost:1337/trends/hot                    # {"posts":1,"installs":1,"rows":[]}
   ```
 
-  `rows` stays empty: a hot post needs three installs registered over a day ago. The counts show
-  the push reached Neon through the flush and the snapshot.
+  The first trends read takes the empty snapshot, so the new counts in the last one can only
+  come from the scheduled flush. `rows` stays empty: a hot post needs three installs registered
+  over a day ago. Unset `XTEND_POOL_DEV_URL` before a plan or deploy: with it set, the local
+  password goes into the deployed worker's state.
 
 - Size: `select count(*) from pool_posts`, installs: `select count(*) from pool_installs`.
 - Abuse: an install's pushes are in `pool_installs.pushes`; its rows in `pool_sightings`. Delete
