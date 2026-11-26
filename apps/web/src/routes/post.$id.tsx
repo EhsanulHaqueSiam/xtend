@@ -1,5 +1,5 @@
 import { useAtomValue } from "@effect/atom-react";
-import { createFileRoute, Link, useRouter } from "@tanstack/react-router";
+import { createFileRoute, Link, Navigate, useRouter } from "@tanstack/react-router";
 import { ChevronRight } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 
@@ -13,11 +13,10 @@ import { XEmpty } from "../components/xnative/XRows";
 import {
   at,
   engineAtom,
-  newestOf,
+  postOn,
   postSurface,
   REPLY_SORTS,
   type ReplySort as Sort,
-  threadOf,
 } from "../state/engine";
 import { refreshScreen, xGo, xNavigate, xSortReplies } from "../state/x";
 
@@ -31,21 +30,19 @@ function PostScreen() {
   const openPost = useOpenPost();
   // X's page carries the reply order; each order's thread sits under its own key.
   const param = REPLY_SORT[sort].param;
-  // An edited post's page is its newest version's: X's page for it, its thread, a reply under it.
-  const newest = newestOf(engine, id);
-  const url = `https://x.com/${h}/status/${newest}${param === null ? "" : `?sort_replies=${param}`}`;
+  const url = `https://x.com/${h}/status/${id}${param === null ? "" : `?sort_replies=${param}`}`;
   // X's router, so a thread X still holds shows at once.
   const open = useCallback(() => void xGo(url), [url]);
   // "Load again": a full load of the same page, since X's router does nothing on the page it shows.
   const reload = () => void xNavigate(url);
-  const surface = postSurface(newest, sort);
+  const surface = postSurface(id, sort);
   // The pick shows at once; X's page may still be drawing the post its sort sits under.
   const [picked, setPicked] = useState<Sort | null>(null);
   // X's own menu first, so the engine already shows the new order when the route asks for it.
   const sortBy = (next: Sort) => {
     setPicked(next);
     void xSortReplies(
-      { postId: newest, handle: h },
+      { postId: id, handle: h },
       REPLY_SORT[next],
       REPLY_SORTS.map((s) => REPLY_SORT[s].label),
     )
@@ -66,7 +63,20 @@ function PostScreen() {
   // A reply through the session left the engine on X's composer, so X's router brings the thread
   // back fresh, the reply already in place. One through the API left it here: load the thread again.
   const afterReply = () => void xGo(url).then((moved) => moved || refreshScreen());
-  const { posts, index, focal } = threadOf(engine, surface, id);
+  // X shows an edited post's newest version: its page moves there, its thread already with it.
+  const newer = engine.latest.get(id);
+  if (newer !== undefined)
+    return (
+      <Navigate
+        to="/post/$id"
+        params={{ id: newer }}
+        search={{ h, ...(sort === "Relevance" ? {} : { sort }) }}
+        replace
+      />
+    );
+  const posts = at(engine.lists, surface).flatMap((pid) => postOn(engine, surface, pid) ?? []);
+  const index = posts.findIndex((p) => p.postId === id);
+  const focal = index === -1 ? engine.posts.get(id) : posts[index];
   const above = index === -1 ? [] : posts.slice(0, index);
   const below = index === -1 ? [] : posts.slice(index + 1);
   const quoted = (pid: string | null) => (pid === null ? undefined : engine.posts.get(pid));
@@ -97,7 +107,7 @@ function PostScreen() {
             under={
               <div className="flex items-center pt-2.5 empty:hidden">
                 {/* Once X's first fetch of the thread is in: X drops a sort picked while it is out. */}
-                {REPLY_SORTS.some((s) => at(engine.lists, postSurface(newest, s)).length > 0) ? (
+                {REPLY_SORTS.some((s) => at(engine.lists, postSurface(id, s)).length > 0) ? (
                   <ReplySort value={picked ?? sort} onChange={sortBy} />
                 ) : null}
                 {focal.metrics.quotes === 0 ? null : (

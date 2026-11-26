@@ -946,19 +946,26 @@ it("ends by the deadline whatever DevTools does: a late answer lets no input go,
   expect(silent.log).not.toContain("press Update");
   expect(silent.loads).toEqual([PAGE, PAGE]);
 
-  // X's page acks the press on Update only after the deadline: it may have gone through.
+  // X's page acks the press on Update only after the deadline: it may have gone through. Its
+  // move off Update is never acked either; the release still goes.
+  const sent: Array<string> = [];
   const slow = await edit(
     { editable: true, lastEdit: false },
     {
-      wrap: (cdp) => (method, params) =>
-        params?.type === "mousePressed" &&
-        document
-          .elementFromPoint(Number(params.x), Number(params.y))
-          ?.closest('[data-testid="tweetButton"]')
+      wrap: (cdp) => (method, params) => {
+        if (params?.type === "mouseMoved" || params?.type === "mouseReleased")
+          sent.push(`${String(params.type)} ${String(params.x)},${String(params.y)}`);
+        if (params?.type === "mouseMoved") return new Promise<unknown>(() => {});
+        return params?.type === "mousePressed" &&
+          document
+            .elementFromPoint(Number(params.x), Number(params.y))
+            ?.closest('[data-testid="tweetButton"]')
           ? later(cdp(method, params), 120_000)
-          : cdp(method, params),
+          : cdp(method, params);
+      },
     },
   );
+  expect(sent.slice(-2)).toEqual(["mouseMoved 0,0", "mouseReleased 0,0"]);
   expect([
     (slow.result as Error).message,
     (slow.result as { notAttempted?: boolean }).notAttempted,

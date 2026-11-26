@@ -6,7 +6,7 @@ import { useContext, useState } from "react";
 import { editPostAtom } from "../../state/compose";
 import { canFormatAtom, engineAtom } from "../../state/engine";
 import { usePostLimit } from "../../state/settings";
-import { xNavigate } from "../../state/x";
+import { xGo, xHere, xNavigate } from "../../state/x";
 import { failText } from "../compose/AssistPanel";
 import { FormatTools, StyledArea, styleKey } from "../compose/FormatTools";
 import { plainEntities, shiftStyles, sliceStyles, toggleStyle } from "../compose/textStyles";
@@ -61,17 +61,28 @@ export function PostEditor({
     // Trimmed as X posts it, so the runs move with the text's start.
     const lead = text.length - text.trimStart().length;
     const trimmed = text.trim();
+    // The edit takes X's page to the post; it goes back where it was once the edit settles (Home
+    // pages on from there), only while still where the edit left it, not where the user moved it.
+    const before = xHere();
+    const putBack = (saved: string | null = null) => {
+      const now = xHere();
+      const left = /\/status\/(\d+)/.exec(now ?? "")?.[1];
+      const leftThere =
+        (left !== undefined && [post.postId, saved].includes(left)) ||
+        now?.includes("/compose/post") === true;
+      if (before !== null && now !== before && leftThere) void xGo(before);
+    };
     const exit = await update({
       postId: post.postId,
       text: trimmed,
       styles: sliceStyles(styles, lead, lead + trimmed.length),
     });
     setBusy(false);
-    if (Exit.isFailure(exit)) return setError(failText(exit.cause));
+    if (Exit.isFailure(exit)) return (putBack(), setError(failText(exit.cause)));
     const saved = exit.value.postId;
-    if (saved === null) return setStatus("X may have saved this edit; check the post");
+    if (saved === null) return (putBack(), setStatus("X may have saved this edit; check the post"));
     if (registry.get(engineAtom).posts.has(saved))
-      return (setToast({ text: "Updated on X" }), onDone());
+      return (putBack(saved), setToast({ text: "Updated on X" }), onDone());
     // X's answer reached another desktop: this window's engine opens the new version once, a read
     // for this click, and X's answer there takes the post's place.
     setStatus("Updated on X; reload the post to see it");

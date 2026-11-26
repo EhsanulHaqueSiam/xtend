@@ -1316,16 +1316,24 @@ export async function editThroughComposer(
     }
   } catch (error) {
     // No press stays down, whatever stopped the edit: let go off the control, at the page's
-    // corner, so the press never completes into a click on it.
+    // corner (X's backdrop there), so the press never completes into a click on it. Both go back
+    // to back, as DevTools orders input; each wait is bounded, and the release goes regardless.
+    const soon = Date.now() + CONTROL_TIMEOUT_MS;
     if (down) {
       const corner = { x: 0, y: 0, button: "left", clickCount: 1 };
-      void raw("Input.dispatchMouseEvent", { type: "mouseMoved", ...corner })
-        .then(() => raw("Input.dispatchMouseEvent", { type: "mouseReleased", ...corner }))
-        .catch(() => {});
+      await Promise.allSettled(
+        (["mouseMoved", "mouseReleased"] as const).map((type) =>
+          until(
+            Promise.resolve().then(() => raw("Input.dispatchMouseEvent", { type, ...corner })),
+            soon,
+            late,
+          ),
+        ),
+      );
     }
     if (Date.now() < deadline) throw error;
-    // Past the deadline: X's page loads again so the next command starts clean.
-    void contents.loadURL(page).catch(() => {});
+    // Past the deadline: X's page loads again, before the command settles, so the next starts clean.
+    await until(contents.loadURL(page), soon, late).catch(() => {});
     if (pressed)
       throw new Error(`${late} after its press; it may have gone through`, { cause: error });
     throw error instanceof NotAttempted ? error : unchanged(error);

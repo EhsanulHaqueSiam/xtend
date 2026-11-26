@@ -50,8 +50,6 @@ import {
   sawAnalyticsRange,
   showWaiting,
   surfacesOf,
-  newestOf,
-  threadOf,
   userByHandle,
   youFollow,
 } from "./engine";
@@ -1272,15 +1270,6 @@ it("puts the user's new reply under the post it answers, a new post on top of Ho
   );
   expect(at(state.lists, "following")).toEqual(shown.map((id) => (id === "13" ? "14" : id)));
   expect([state.latest.get("14"), state.latest.get("10")]).toEqual([undefined, "14"]);
-  // The original's own page shows the newest version too, with its thread: a reply goes under the
-  // newest version whichever version it names.
-  expect(threadOf(state, postSurface("10", "Relevance"), "10").focal?.postId).toBe("14");
-  state = mergeBatch(
-    state,
-    batch("CreateTweet", [{ ...post("15", "2026-11-01T00:00:00Z"), replyToId: "10" }]),
-  );
-  const page = postSurface(newestOf(state, "10"), "Relevance");
-  expect(threadOf(state, page, "10").posts.map((p) => p.postId)).toEqual(["14", "15"]);
   // An answer that tells nothing new keeps the same versions.
   expect(
     mergeBatch(state, batch("TweetDetail", [{ ...quote, postId: "11", edits: ["10", "11"] }]))
@@ -1614,4 +1603,41 @@ it("keeps the user's own X Articles: each list as X last sent it, and a body X s
     state.xArticles.Published,
     state.xArticles.byId.get("1")?.blocks,
   ]).toEqual([["2", "1"], [], body]);
+});
+
+it("swaps an edited post's new version in once, everywhere: its lists, its place in a self-thread, its open thread", () => {
+  const at0 = "2026-11-26T09:00:00Z";
+  const conversation = { id: "conv-9", index: 0, size: 2 };
+  let state = mergeBatch(
+    emptyEngine,
+    batch("HomeLatestTimeline", [{ ...post("701", at0), conversation }, post("500", at0)], {
+      order: ["701", "500"],
+    }),
+  );
+  state = mergeBatch(
+    state,
+    batch("TweetDetail", [post("701", at0), { ...post("600", at0), replyToId: "701" }], {
+      key: "701:Recency",
+      order: ["701", "600"],
+    }),
+  );
+  state = mergeBatch(state, batch("CreateTweet", [{ ...post("703", at0), edits: ["701", "703"] }]));
+  // Home keeps its order and the thread connector the original had there.
+  expect(at(state.lists, "following")).toEqual(["703", "500"]);
+  expect(postOn(state, "following", "703")?.conversation).toEqual(conversation);
+  // The open thread is the new version's now, its replies with it.
+  expect(at(state.lists, postSurface("703", "Recency"))).toEqual(["703", "600"]);
+  expect(at(state.lists, postSurface("701", "Recency"))).toEqual([]);
+  // A late answer for the original's page lands in the new version's thread.
+  state = mergeBatch(
+    state,
+    batch("TweetDetail", [post("701", at0), { ...post("601", at0), replyToId: "701" }], {
+      key: "701",
+      order: ["701", "601"],
+    }),
+  );
+  expect(at(state.lists, postSurface("703", "Relevance"))).toEqual(["703", "601"]);
+  // A reply after the edit shows in the open thread.
+  state = mergeBatch(state, batch("CreateTweet", [{ ...post("800", at0), replyToId: "703" }]));
+  expect(at(state.lists, postSurface("703", "Recency"))).toEqual(["703", "800", "600"]);
 });

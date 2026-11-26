@@ -675,29 +675,63 @@ function newestVersions(
   return copy ?? known;
 }
 
-/** Every id in the lists as its newest version, once (see `newestVersions`). */
-const newestIn = (per: PerSurface<string>, latest: ReadonlyMap<string, string>) =>
-  (Object.keys(per) as ReadonlyArray<AnySurface>).reduce(
-    (out, s) => set(out, s, unique(at(per, s).map((id) => latest.get(id) ?? id))),
-    per,
-  );
-
 /**
- * The newest version of post `id` the store has (see `latest`), or `id`: what a post's page, its
- * thread and a reply under it go by.
+ * The store with post `oldId`'s new version `newId` in its place, once, as X shows an edited post:
+ * in every list, with its place there (a self-thread's connector, a repost's context), and as the
+ * owner of its open thread in every reply order. Later answers naming `oldId` go by `latest`.
  */
-export const newestOf = (state: EngineState, id: string) => state.latest.get(id) ?? id;
-
-/**
- * A post screen's thread for `id` on its `surface`: X's list, and where in it the post itself is,
- * as its newest version; index -1 with the post alone until X's thread is in.
- */
-export function threadOf(state: EngineState, surface: AnySurface, id: string) {
-  const posts = at(state.lists, surface).flatMap((pid) => postOn(state, surface, pid) ?? []);
-  const newest = newestOf(state, id);
-  const index = posts.findIndex((p) => p.postId === newest);
-  return { posts, index, focal: index === -1 ? state.posts.get(newest) : posts[index] };
+function swapVersion(state: EngineState, oldId: string, newId: string): EngineState {
+  const swapIn = (per: PerSurface<string>) =>
+    (Object.keys(per) as ReadonlyArray<AnySurface>).reduce(
+      (out, s) =>
+        at(per, s).includes(oldId)
+          ? set(out, s, unique(at(per, s).map((id) => (id === oldId ? newId : id))))
+          : out,
+      per,
+    );
+  const placed = (entries: ReadonlyMap<string, PostEntry> | undefined) => {
+    const place = entries?.get(oldId);
+    if (entries === undefined || place === undefined) return entries;
+    const moved = new Map(entries);
+    moved.delete(oldId);
+    if (!moved.has(newId)) moved.set(newId, place);
+    return moved;
+  };
+  let next: EngineState = {
+    ...state,
+    lists: swapIn(state.lists),
+    waiting: swapIn(state.waiting),
+    nextTop: swapIn(state.nextTop),
+    entries: Object.fromEntries(
+      Object.entries(state.entries).map(([s, entries]) => [s, placed(entries)]),
+    ) as EngineState["entries"],
+  };
+  // Its open thread, for every reply order: the new version's, where it has none of its own yet.
+  let { lists, waiting, nextTop } = next;
+  const cursors: { -readonly [S in AnySurface]?: EngineState["cursors"][S] } = { ...next.cursors };
+  const entries: { -readonly [S in AnySurface]?: EngineState["entries"][S] } = { ...next.entries };
+  for (const sort of REPLY_SORTS) {
+    const from = postSurface(oldId, sort);
+    const to = postSurface(newId, sort);
+    if (at(lists, from).length === 0 || at(lists, to).length > 0) continue;
+    lists = set(set(lists, to, at(lists, from)), from, []);
+    waiting = set(set(waiting, to, at(waiting, from)), from, []);
+    nextTop = set(set(nextTop, to, at(nextTop, from)), from, []);
+    cursors[to] = cursors[from];
+    delete cursors[from];
+    entries[to] = entries[from];
+    delete entries[from];
+  }
+  next = { ...next, lists, waiting, nextTop, cursors, entries };
+  return next;
 }
+
+/** A thread X sent for an earlier version of a post is its newest version's (see `swapVersion`). */
+const newestThread = (surface: AnySurface, latest: ReadonlyMap<string, string>): AnySurface => {
+  const [, id, sort] = /^post:(\d+)(?::(\w+))?$/.exec(surface) ?? [];
+  const newest = id === undefined ? undefined : latest.get(id);
+  return newest === undefined ? surface : postSurface(newest, (sort ?? "Relevance") as ReplySort);
+};
 
 /** A surface's entries; a tab X has not sent yet has none. */
 export const at = <A>(per: PerSurface<A>, surface: AnySurface): ReadonlyArray<A> =>
@@ -829,13 +863,6 @@ export function mergeBatch(state: EngineState, batch: EngineBatch): EngineState 
     ...state,
     posts,
     latest,
-    ...(latest === state.latest
-      ? {}
-      : {
-          lists: newestIn(state.lists, latest),
-          waiting: newestIn(state.waiting, latest),
-          nextTop: newestIn(state.nextTop, latest),
-        }),
     modules:
       batch.modules.length === 0
         ? state.modules
@@ -925,22 +952,28 @@ export function mergeBatch(state: EngineState, batch: EngineBatch): EngineState 
           : state.spacesUnavailable,
     xArticles: mergeXArticles(state.xArticles, batch),
   };
-  const listed = surfacesOf(batch).reduce(
-    (state, surface) =>
-      mergeInto(
-        // Explore's, Inspiration's and Radar's first page is X's whole list again, so it replaces
-        // ours; Home's waits behind a pill, which none of them draws.
-        (surface.startsWith("explore:") ||
-          surface.startsWith("inspiration:") ||
-          surface.startsWith("radar:")) &&
-          batch.cursor === null
-          ? resetSurface(state, surface)
-          : state,
-        batch,
-        surface,
-      ),
-    mergeGames(listWrite(merged, batch), batch),
-  );
+  // Each version this answer made newest takes its earlier one's place, once.
+  const swapped = [...latest]
+    .filter(([oldId, newId]) => state.latest.get(oldId) !== newId)
+    .reduce((s, [oldId, newId]) => swapVersion(s, oldId, newId), merged);
+  const listed = surfacesOf(batch)
+    .map((surface) => newestThread(surface, latest))
+    .reduce(
+      (state, surface) =>
+        mergeInto(
+          // Explore's, Inspiration's and Radar's first page is X's whole list again, so it replaces
+          // ours; Home's waits behind a pill, which none of them draws.
+          (surface.startsWith("explore:") ||
+            surface.startsWith("inspiration:") ||
+            surface.startsWith("radar:")) &&
+            batch.cursor === null
+            ? resetSurface(state, surface)
+            : state,
+          batch,
+          surface,
+        ),
+      mergeGames(listWrite(swapped, batch), batch),
+    );
   if (!/^Create(Note)?Tweet$/.test(batch.op)) return listed;
   // The response also carries the post it quotes, which stays where it was.
   const created = batch.posts.filter((p) => !batch.posts.some((q) => q.quotedId === p.postId));
@@ -1393,7 +1426,7 @@ function promptsOf(state: EngineState, batch: EngineBatch): EngineState["prompts
  */
 function placeCreated(state: EngineState, post: EnginePost): EngineState {
   if (post.edits.length > 1) return state;
-  const parentId = post.replyToId === null ? null : newestOf(state, post.replyToId);
+  const parentId = post.replyToId;
   if (parentId === null) {
     const surfaces: ReadonlyArray<AnySurface> = [
       "forYou",
