@@ -89,13 +89,13 @@ trends read).
   are what the worker calls; run them by hand to test a schema change. `pool_flush` returns the
   accepted count, the pushes it dropped and the installs it did not know.
 - Local check: a local Postgres with the schema applied, then the worker on it (logged in: dev
-  still reads the Hyperdrive config by id) and one pass through every route. Use the URL dev
-  prints: 1337 unless another checkout holds it.
+  still reads the Hyperdrive config by id) and one pass through every route. Set `DEV_DB` to that
+  Postgres's URL, and use the URL dev prints: 1337 unless another checkout holds it.
 
   ```sh
-  XTEND_POOL_DEV_URL=postgres://<user>:<pass>@127.0.0.1:<port>/<db> pnpm --filter @xtend/pool dev
-  curl -XPOST localhost:1337/register                                   # {"installId":"<id>"}
-  curl -XPOST localhost:1337/push -H "x-install: <id>" -d '{"items":[{"post":{"postId":"1",
+  XTEND_POOL_DEV_URL="$DEV_DB" pnpm --filter @xtend/pool dev  # DEV_DB=postgres://u:p@127.0.0.1/pool
+  curl -XPOST localhost:1337/register                       # {"installId":"..."}: set ID to it
+  curl -XPOST localhost:1337/push -H "x-install: $ID" -d '{"items":[{"post":{"postId":"1",
     "text":"hi","createdAt":"2026-01-01T00:00:00Z","author":{"userId":"2","handle":"a"}},
     "metrics":{"views":1,"likes":0,"reposts":0,"replies":0,"quotes":0,"bookmarks":0}}]}'  # 202
   curl "localhost:1337/cdn-cgi/handler/scheduled?cron=0+*+*+*+*"        # flushes
