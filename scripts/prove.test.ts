@@ -1,12 +1,13 @@
 import { expect, it } from "vite-plus/test";
 
 import { exitCodeOf, projectOf, resultOf } from "./prove.ts";
+import { STARTUP_FAILED } from "./scenarios/harness.ts";
 
 const report = (failed: number, passed: number, message = "") => ({
   numTotalTests: failed + passed,
   numFailedTests: failed,
   numPassedTests: passed,
-  testResults: [{ message }],
+  testResults: [{ message, assertionResults: [] }],
 });
 
 it("counts only a failed check as a failure; a hook error, no report or a dirty pass proves nothing", () => {
@@ -18,6 +19,14 @@ it("counts only a failed check as a failure; a hook error, no report or a dirty 
   expect(resultOf({ ...report(0, 0, "service did not come up"), numTotalTests: 1 }, false)).toBe(
     "broken",
   );
+  // A test started a second app itself, and it never came up.
+  const started = {
+    ...report(1, 0),
+    testResults: [
+      { message: "", assertionResults: [{ failureMessages: [`Error: ${STARTUP_FAILED} x`] }] },
+    ],
+  };
+  expect(resultOf(started, false)).toBe("broken");
   // globalSetup or the build failed: no report was written.
   expect(resultOf(undefined, false)).toBe("broken");
   // -t matched nothing.

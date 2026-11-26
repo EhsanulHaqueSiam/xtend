@@ -1,4 +1,5 @@
 import * as NodeCrypto from "node:crypto";
+import * as NodeFS from "node:fs";
 import * as NodeNet from "node:net";
 
 // Shared by every copy of this module in the process: both scenario projects' setups in one vitest.
@@ -16,7 +17,9 @@ const lockPort = (appDir: string) =>
  * can listen on: the kernel frees it when that process dies, so no lock is ever stale and taking it
  * is atomic. A second run fails at once; other checkouts run side by side. Resolves to the release.
  */
-export function lockAppDir(appDir: string) {
+export function lockAppDir(path: string) {
+  // One checkout, one lock, however its path is spelled (/tmp and /private/tmp, a symlink).
+  const appDir = NodeFS.realpathSync(path);
   const known = held.get(appDir);
   if (known !== undefined) return known;
   const port = lockPort(appDir);
@@ -26,9 +29,10 @@ export function lockAppDir(appDir: string) {
       reject(
         error.code === "EADDRINUSE"
           ? new Error(
-              `Another scenario run is building ${appDir} (it holds 127.0.0.1:${port}). Wait for ` +
-                "it to finish, or run this one from another worktree: every checkout gets its own " +
-                "ports, homes and Electron.",
+              `Another scenario run is building ${appDir}: 127.0.0.1:${port}, this checkout's ` +
+                "scenario lock, is taken. Wait for that run, or run this one from another worktree " +
+                "(every checkout gets its own ports, homes and Electron). If no run is going, another " +
+                `program holds the port (\`lsof -i :${port}\`), or another checkout's path hashed to it.`,
             )
           : error,
       ),

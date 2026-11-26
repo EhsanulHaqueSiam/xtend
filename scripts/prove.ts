@@ -11,12 +11,17 @@ import * as NodeOS from "node:os";
 import * as NodePath from "node:path";
 import * as NodeUtil from "node:util";
 
+import { STARTUP_FAILED } from "./scenarios/harness.ts";
+
 /** The parts of vitest's JSON report a verdict reads. */
 export interface RunReport {
   readonly numTotalTests: number;
   readonly numFailedTests: number;
   readonly numPassedTests: number;
-  readonly testResults: ReadonlyArray<{ readonly message: string }>;
+  readonly testResults: ReadonlyArray<{
+    readonly message: string;
+    readonly assertionResults: ReadonlyArray<{ readonly failureMessages: ReadonlyArray<string> }>;
+  }>;
 }
 
 /**
@@ -28,7 +33,14 @@ export interface RunReport {
 export const resultOf = (report: RunReport | undefined, exitedClean: boolean) =>
   report === undefined ||
   report.numTotalTests === 0 ||
-  report.testResults.some((file) => file.message !== "")
+  report.testResults.some(
+    (file) =>
+      file.message !== "" ||
+      // An app a test starts itself (a second engine) that never came up.
+      file.assertionResults.some((test) =>
+        test.failureMessages.some((m) => m.includes(STARTUP_FAILED)),
+      ),
+  )
     ? "broken"
     : report.numFailedTests > 0
       ? "failed"
@@ -51,6 +63,8 @@ export const projectOf = (file: string) =>
 const root = NodePath.dirname(import.meta.dirname);
 // Ctrl-C reaches the child and ends it; this process, blocked in spawnSync, sees it only there.
 let interrupted = () => process.exit(130);
+// Without a listener Node dies of the Ctrl-C before spawnSync returns, and nothing cleans up.
+process.on("SIGINT", () => {});
 const run = (
   cmd: string,
   args: ReadonlyArray<string>,

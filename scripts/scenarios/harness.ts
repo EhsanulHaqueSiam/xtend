@@ -37,6 +37,9 @@ type RpcOf<M extends Method> = Rpc.ExtractTag<Rpcs, M>;
  * and also when startup fails partway, so a failed launch leaves no process or temp dir behind;
  * one failing step does not skip the rest.
  */
+/** Marks an app that never started, so `pnpm prove` never counts it as the behavior failing. */
+export const STARTUP_FAILED = "[scenario startup failed]";
+
 export async function withTempDir<A>(
   prefix: string,
   launch: (dir: string, undo: Array<() => Promise<unknown>>) => Promise<A>,
@@ -52,7 +55,9 @@ export async function withTempDir<A>(
     return { ...(await launch(dir, undo)), close };
   } catch (error) {
     await close();
-    throw error;
+    throw new Error(`${STARTUP_FAILED} ${error instanceof Error ? error.message : String(error)}`, {
+      cause: error,
+    });
   }
 }
 
