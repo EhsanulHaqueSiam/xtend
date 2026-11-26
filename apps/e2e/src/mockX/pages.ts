@@ -901,12 +901,12 @@ export function route(
         return `${header("Analytics")}<div role="combobox">All</div><button type="button" aria-label="Sort by">⇅</button>${
           rows.length === 0
             ? "<p>No broadcasts available for the selected filter</p>"
-            : `<table><tr><th>Status</th><th>Broadcast</th><th>Minutes Watched</th><th>Views</th><th>Viewers</th></tr>${rows
+            : `<table><thead><tr><th>Status</th><th>Broadcast</th><th>Minutes Watched</th><th>Views</th><th>Viewers</th></tr></thead><tbody>${rows
                 .map(
                   (lb) =>
-                    `<tr data-testid="live-analytics-row"><td><a href="/i/account_analytics/live/${esc(lb.broadcastId)}">${esc(lb.title || "Untitled")}</a></td><td>${lb.minutesWatched}</td><td>${lb.views}</td><td>${lb.viewers}</td></tr>`,
+                    `<tr data-testid="live-analytics-row"><td>${esc(lb.state)}</td><td><a href="/i/account_analytics/live/${esc(lb.broadcastId)}">${esc(lb.title || "Untitled")}</a></td><td>${lb.minutesWatched}</td><td>${lb.views}</td><td>${lb.viewers}</td></tr>`,
                 )
-                .join("")}</table>`
+                .join("")}</tbody></table>`
         }`;
       },
     };
