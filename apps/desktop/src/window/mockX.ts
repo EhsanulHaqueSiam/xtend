@@ -3,7 +3,7 @@ import { session } from "electron";
 import { hostOf, isXHost } from "./guestPolicy.ts";
 
 /**
- * Mock X for dev and tests (`XTEND_MOCK_X=<origin>`, see apps/e2e/src/mockX): the session view
+ * Mock X for dev and tests (`XTEND_MOCK_X=<origin>`, see scripts/scenarios/mockX): the session view
  * loads https://x.com as ever, so main's x.com gating, capture and webview policy run unchanged,
  * but its partition answers every x.com request from the mock and lets nothing else leave the
  * machine. Never in a packaged build, never on an account's partition.

@@ -8,11 +8,12 @@ const packages = readWorkspace();
 const all = [
   "@xtend/contracts",
   "@xtend/desktop",
-  "@xtend/e2e",
+  "@xtend/evals",
   "@xtend/marketing",
-  "@xtend/oxlint-plugin",
   "@xtend/pool",
+  "@xtend/scripts",
   "@xtend/web",
+  "oxlint-plugin-xtend",
   "xtend",
 ];
 const run = (...files) => decide(files, packages);
@@ -21,19 +22,30 @@ test("reads every workspace package", () => {
   assert.deepEqual(packages.map((pkg) => pkg.name).sort(), all);
 });
 
-test("docs, agent skills and root markdown run only check", () => {
+test("docs, agent skills, the dev container and root markdown run only check", () => {
   assert.deepEqual(
-    run("docs/operations/development.md", "AGENTS.md", ".agents/skills/test-xtend-app/SKILL.md"),
+    run(
+      "docs/operations/00_development.md",
+      "AGENTS.md",
+      ".agents/skills/test-xtend-app/SKILL.md",
+      "skills/xtend/SKILL.md",
+      ".devcontainer/devcontainer.json",
+      ".github/SECURITY.md",
+    ),
     { affected: [], outputs: { build: false, test: false } },
   );
 });
 
-test("an app change builds and tests that app", () => {
+test("an app change builds and tests that app and the tools that import its source", () => {
   assert.deepEqual(run("apps/web/src/routes/compose.tsx", "docs/README.md"), {
-    affected: ["@xtend/web"],
+    affected: ["@xtend/evals", "@xtend/scripts", "@xtend/web"],
     outputs: { build: true, test: true },
   });
-  assert.deepEqual(run("apps/desktop/src/main.ts").affected, ["@xtend/desktop"]);
+  assert.deepEqual(run("apps/desktop/src/main.ts").affected, [
+    "@xtend/desktop",
+    "@xtend/evals",
+    "@xtend/scripts",
+  ]);
 });
 
 test("a contracts change reaches every package", () => {
@@ -43,16 +55,14 @@ test("a contracts change reaches every package", () => {
   });
 });
 
-test("the lint plugin reaches only itself", () => {
-  assert.deepEqual(run("packages/oxlint-plugin/rules/no-test-in-loop.ts").affected, [
-    "@xtend/oxlint-plugin",
+test("the lint plugin, the pool worker and the scenarios reach only themselves", () => {
+  assert.deepEqual(run("oxlint-plugin-xtend/rules/no-test-in-loop.ts").affected, [
+    "oxlint-plugin-xtend",
   ]);
-});
-
-test("root scripts run tests but no build", () => {
-  assert.deepEqual(run("scripts/dev-runner.ts", "scripts/dev-runner.test.ts"), {
-    affected: [],
-    outputs: { build: false, test: true },
+  assert.deepEqual(run("infra/pool/src/index.ts").affected, ["@xtend/pool"]);
+  assert.deepEqual(run("scripts/scenarios/engine/spaces.engine.ts"), {
+    affected: ["@xtend/scripts"],
+    outputs: { build: true, test: true },
   });
 });
 

@@ -2,6 +2,12 @@
 
 Xtend is a desktop-first X (Twitter) growth suite: one app whose sidebar holds both X and the tools. x.com runs inside it as the user's own logged-in session, reskinned with CSS, and a local service adds analytics, a composer with a queue, a viral library, engagement targets, lead lists, automations and account scores. The architecture copies T3 Code: a headless Node service owns data and all X calls; thin web and Electron clients connect to it over WebSocket RPC.
 
+## How to work here
+
+Ambitious ideas, simple systems. Do not keep complexity because it exists, and do not add machinery because it looks impressive: find the real constraint, then the smallest model that makes the right behavior unsurprising. Measure twice, cut once, and yagni. Fight scope creep. These are good defaults, not laws; the developer's preferences win, and if a rule here fights the task in front of you, say so before breaking it.
+
+Most changes are made by agents, often several at once in separate worktrees on the developer's own machine, beside their real install and their real X account. Every test in this repo runs without an account, a treg token or a model login (see [Verifying](#verifying)); keep it that way.
+
 ## Open work
 
 Open work lives in GitHub issues, not in docs. Each milestone has one `epic` issue whose sub-issues are listed in the order to do them. Issues labelled `agent-ready` carry Goal, Context, Where, Done when, Verify and Constraints: start from one, read the files under Where, and close it from the PR with `Closes #n`. `area:*` labels name the part of the app. What stays X's own page by decision (sign-in, security, payments) is in the "native beyond X's page" epic. New work: `.github/ISSUE_TEMPLATE/task.md`.
@@ -10,7 +16,7 @@ Open work lives in GitHub issues, not in docs. Each milestone has one `epic` iss
 
 - **service** means the headless `xtend` process in `apps/server`: SQLite, scheduler, automations, treg and X calls, agent runs.
 - **client** means the web UI (`apps/web`) or the Electron shell (`apps/desktop`) that wraps it.
-- **session view** means the x.com `<webview>` inside the desktop window, on the account's cookie partition. It is the only place the user's X session exists; the service never holds X cookies. Under Xtend's own X screens (Home, Search, Post) it is the **engine**, off screen; on X pages Xtend does not draw yet it sits over the main area, and in the side panel beside the tools. See `docs/internals/native-shell.md`.
+- **session view** means the x.com `<webview>` inside the desktop window, on the account's cookie partition. It is the only place the user's X session exists; the service never holds X cookies. Under Xtend's own X screens (Home, Search, Post) it is the **engine**, off screen; on X pages Xtend does not draw yet it sits over the main area, and in the side panel beside the tools. See `docs/internals/03_native-shell.md`.
 - **skin** means the CSS the desktop inserts into the session view to hide X's own navigation and right column. CSS only, never script.
 - **observation** means a post, author or metric row the desktop read from the session view's own traffic and sent to the service. Observations are passive: nothing is replayed to X.
 - **account** means one connected X handle. All data is scoped to an account.
@@ -26,11 +32,32 @@ Open work lives in GitHub issues, not in docs. Each milestone has one `epic` iss
 
 - `packages/contracts` - Effect Schema contracts and the RPC group. Anything that crosses the wire is typed here first.
 - `apps/server` - the service. Effect-heavy. Foundation services every screen uses: `x/Treg.ts` (the only HTTP door to treg: token, budget, read cache, spend log), `x/XClient.ts` (typed X reads and writes, every call names its `purpose`), `ai/Assist.ts` (one structured-output model call; screens pass instructions, input and an output schema), `settings/SettingsStore.ts` (handle, token, budget, voice notes, keywords, spend).
-- Each suite area (compose, plan, analyze, scores, library, engage, leads, automate) owns `packages/contracts/src/<area>.ts` (schemas, method names, its RpcGroup, merged into `WsRpcGroup`), `apps/server/src/<area>/<Area>Handlers.ts` (`layer` for its services, `layerHandlers` for its rpcs, both pre-merged in `server.ts` and `ws.ts`), one migration per area pair, and its own routes, components and state files in `apps/web`. Adding a screen never edits another screen's files. Read [Effect services](docs/internals/effect-services.md) before adding server code.
+- Each suite area (compose, plan, analyze, scores, library, engage, leads, automate) owns `packages/contracts/src/<area>.ts` (schemas, method names, its RpcGroup, merged into `WsRpcGroup`), `apps/server/src/<area>/<Area>Handlers.ts` (`layer` for its services, `layerHandlers` for its rpcs, both pre-merged in `server.ts` and `ws.ts`), one migration per area pair, and its own routes, components and state files in `apps/web`. Adding a screen never edits another screen's files. Read [Effect services](docs/internals/02_effect-services.md) before adding server code.
 - `apps/web` - React, Vite, TanStack Router, Tailwind 4, `@effect/atom-react`. The desktop wraps it.
 - Screens share one shape: `PageHeader` on top (the open section's name, plain-word filters, actions), then `components/ui/layout.tsx` (`PageBody`, `Section`, `Empty`, `Cost`, `Stat`, `table`). A tool's sections live in `components/shell/sections.ts` and show as rows under it in the sidebar; the page reads the open one with `useSection` and never draws its own tab row. Groups are a label and a hairline, not a card. Shared pieces live in `components/ui/` (`split.tsx` list plus detail column, `menu.tsx`, `popover.tsx`, `switch.tsx`, `field.tsx`, `x-link.tsx` to open a post on X beside the tool, `no-handle.tsx`); use them before writing a local one.
-- `apps/pool` - the Cloudflare Worker in front of the shared pool (Neon Postgres through Hyperdrive): issues install ids, takes observation batches, serves trends. The only thing that holds the pool's credentials. `pnpm --filter @xtend/pool deploy`.
 - `apps/desktop` - Electron. Loads the app as the window, gates and wires the x.com webview, runs or connects to the service, captures observations.
+- `apps/marketing` - the site.
+- `infra/pool` - the Cloudflare Worker in front of the shared pool (Neon Postgres through Hyperdrive): issues install ids, takes observation batches, serves trends. The only thing that holds the pool's credentials. `pnpm --filter @xtend/pool deploy`.
+- `scripts` - repo tooling (dev runner, checks, packaging) and `scripts/scenarios`: the e2e journeys and the engine suite against the real app, with mock X (`scenarios/mockX`) and the fake treg. A workspace package, `@xtend/scripts`.
+- `evals/` - real models against Xtend's model-facing text. See [Evals](#evals).
+- `oxlint-plugin-xtend/` - the repo's own lint rules (`xtend/*`), loaded by `vite.config.ts`.
+- `.agents/skills/` (linked as `.claude/skills`) - skills for agents working on Xtend: `test-xtend-app` (verify UI in the real app), `xtend-logs` (read a service's logs and traces), `contribution-triage` (incoming issues and PRs). `skills/` holds skills for users' own agents driving Xtend (`skills/xtend`).
+- `.repos/` - read-only reference sources at the versions the workspace pins (`.repos/effect`; start with `.repos/effect/LLMS.md`). `pnpm sync:repos` links them (worktree setup does it); they are gitignored, so search them by path (`rg -uu <pattern> .repos/effect`). Never edit or import from them.
+
+### Internal docs by area
+
+Read the matching doc before changing code in that area.
+
+| Area                                             | Read first                                                                                               |
+| ------------------------------------------------ | -------------------------------------------------------------------------------------------------------- |
+| Vocabulary and architecture                      | [00_glossary.md](docs/internals/00_glossary.md), [01_architecture.md](docs/internals/01_architecture.md) |
+| Server Effect services and errors                | [02_effect-services.md](docs/internals/02_effect-services.md)                                            |
+| The desktop, the session view and the engine     | [03_native-shell.md](docs/internals/03_native-shell.md)                                                  |
+| Screens, components and styles                   | [04_design.md](docs/internals/04_design.md)                                                              |
+| The shared pool                                  | [05_pool.md](docs/internals/05_pool.md), [04_pool.md](docs/operations/04_pool.md)                        |
+| Writing and reviewing tests, scenarios, prove    | [07_testing.md](docs/internals/07_testing.md)                                                            |
+| Dev runs, fixtures, mock X, checks, CI, releases | [00_development.md](docs/operations/00_development.md)                                                   |
+| CLI, HTTP API, MCP; logs and traces              | [02_api.md](docs/operations/02_api.md), [03_observability.md](docs/operations/03_observability.md)       |
 
 ## Conventions
 
@@ -71,24 +98,30 @@ The most common defect is a change that works on the path you tested and is miss
 - `pnpm dev:ps` lists every checkout's dev runs and dev desktops (PID, ports, DevTools port, alive). `pnpm dev:x-session save|use|status` signs dev desktops in from one saved session in `~/.xtend-dev`: the user's real X login, never committed or shared. macOS has no `timeout`; use a command's own limit or `perl -e 'alarm shift; exec @ARGV' <s> <cmd>`.
 - Service state lives in `~/.xtend` by default; `--base-dir` overrides it. Dev runs use `<repo>/.xtend`, which is gitignored.
 - Need a second checkout? `git worktree add` it next to this one, not in `/tmp`, and remove it when done.
+- No Mac at hand: `.devcontainer/` mirrors CI (Linux, Chromium, xvfb for the engine suite); see [Dev container](docs/operations/01_devcontainer.md).
 
 ## Test data
 
-An empty database is a bad test, and live state is never one. `pnpm dev` seeds a fresh home with demo data and sends treg, the pool and AI assist to a local fake; `--seed real` copies your own install with everything that acts or spends turned off. To see one UI state, `pnpm dev --fixture <name>`; to see X screens without the desktop, add `?engine=all`. Screenshots for a PR come from `pnpm capture`. [Development](docs/operations/development.md#dev-data-and-ui-states) has the commands.
+An empty database is a bad test, and live state is never one. `pnpm dev` seeds a fresh home with demo data and sends treg, the pool and AI assist to a local fake; `--seed real` copies your own install with everything that acts or spends turned off. To see one UI state, `pnpm dev --fixture <name>`; to see X screens without the desktop, add `?engine=all`. Screenshots for a PR come from `pnpm capture`. [Development](docs/operations/00_development.md#dev-data-and-ui-states) has the commands.
 
 ## Verifying
 
 - `pnpm check:changed` before you push: format, lint, knip, typecheck of the packages your change reaches, and the tests beside changed files. CI runs the full suites. While iterating, `vp test run <files>` (`-t "<name>"` for one case).
 - **Do not run repo-wide checks** (`vp run -r test`, `pnpm test`, `pnpm typecheck`) unless asked. CI owns the full suite.
 - Lint gates: errors and warnings both fail. A suppression needs `-- <reason>`; a React effect needs one saying what it syncs with.
-- [Testing](docs/internals/testing.md) holds the rules. The short form:
+- [Testing](docs/internals/07_testing.md) holds the rules. The short form:
   - Test behavior that can break, at the lowest layer that fails on `main`; extend an existing case before adding one. No tests for types, copy, wiring or static markup.
   - A logic, data or state bug gets a failing test first, then the fix. A visual bug gets before/after captures and no test. A service-only fix gets its test plus a short runtime transcript.
   - Never wait on sleeps, polling or timeouts: `it.effect` with `TestClock`, await the `Deferred` or event, fake timers in browser tests. Lint enforces it.
-  - Screen tests are `*.browser.test.tsx` and render against a fake service: `await using screen = await render(ui, { service })`. See `docs/operations/development.md#screen-tests`.
-- Engine work (what the session view loads, reads or presses) is proven live with the engine bench on a signed-in dev desktop, three clean runs five minutes apart; the `test-xtend-app` skill shows how. Name the result in the PR.
+  - Screen tests are `*.browser.test.tsx` and render against a fake service: `await using screen = await render(ui, { service })`. See `docs/operations/00_development.md#screen-tests`.
+- Scenarios drive the real app with no account: `pnpm test:e2e` (the service and headless Chromium, fake treg) and `pnpm test:engine` (the built desktop, hidden, on mock X). Each run takes free ports and temp homes, so every worktree can run them at once; one run per checkout, since a run builds that checkout's app (a second one fails and names the first). For a bug a user can reproduce, `pnpm prove scripts/scenarios/<file>` shows the scenario failing on main's app and passing on yours; put its last line in the PR. [Testing](docs/internals/07_testing.md#scenarios) has the rules.
+- Engine work (what the session view loads, reads or presses) is proven on mock X first (`pnpm test:engine`, teaching mock X the page if it lacks it), then live with the engine bench on a signed-in dev desktop, three clean runs five minutes apart; the `test-xtend-app` skill shows how. Name the result in the PR.
 - User-visible changes get one integrated pass in the real app through `test-xtend-app`, by the primary agent after integrating. Subagents do not launch their own dev servers or desktops.
 - Paid lanes (treg, X API, models) spend the user's balance. Prefer fake-service tests and seeded observations; use a paid call only when the change depends on it, and say what it cost.
+
+## Evals
+
+`evals/` checks how real models behave with Xtend's model-facing text: the assist instructions screens send through `ai/Assist.ts`. Before changing that text, read [evals/README.md](evals/README.md) and run the eval it names; they run on the developer's Claude or Codex CLI login, not an API key. When fixing a model behavior bug, add a case that fails before the fix.
 
 ## Pull requests
 
@@ -98,7 +131,7 @@ An empty database is a bad test, and live state is never one. `pnpm dev` seeds a
 
 ## X parity references (Mobbin MCP)
 
-Before building or checking any X flow, see how X does it in Mobbin's recording of X's web app. `docs/operations/x-parity-mobbin.md` lists all 151 flows by section with their Mobbin links: grep it for the flow, then make one call, `mcp__mobbin__search_flows` with `platform: "web"`, `query: "X <exact flow name>"`, `limit: 1` (a single menu or dialog: `mcp__mobbin__search_screens`, `limit: 2`). Results carry images at 1 to 2K tokens each, so keep limits low, batch lookups in a text-only subagent, and paste each new link into the index.
+Before building or checking any X flow, see how X does it in Mobbin's recording of X's web app. `docs/operations/05_x-parity-mobbin.md` lists all 151 flows by section with their Mobbin links: grep it for the flow, then make one call, `mcp__mobbin__search_flows` with `platform: "web"`, `query: "X <exact flow name>"`, `limit: 1` (a single menu or dialog: `mcp__mobbin__search_screens`, `limit: 2`). Results carry images at 1 to 2K tokens each, so keep limits low, batch lookups in a text-only subagent, and paste each new link into the index.
 
 ## Documentation
 

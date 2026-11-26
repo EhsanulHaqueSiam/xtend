@@ -1,0 +1,77 @@
+name: Triage report
+description: Filed through `xtend triage`, where a coding agent investigated the machine. Use the bug report for hand-written reports.
+labels:
+  - via-triage
+body:
+  - type: markdown
+    attributes:
+      value: |
+        The sections `xtend triage` agents follow (see `.github/triage/PLAYBOOK.md`). One problem
+        per issue. No tokens, cookies, handles, post or draft text, or home paths (write `~`).
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: The problem in the user's own words.
+    validations:
+      required: true
+
+  - type: textarea
+    id: diagnosis
+    attributes:
+      label: Diagnosis
+      description: What the investigation found, grounded in the trace, logs and source.
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: The build the problem happened on, or unknown.
+      placeholder: 0.4.2
+    validations:
+      required: true
+
+  - type: input
+    id: environment
+    attributes:
+      label: Environment
+      description: OS, Node, and how Xtend runs (desktop app, launchd, shell).
+      placeholder: macOS 26.1, Node 24, desktop app
+    validations:
+      required: true
+
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Evidence
+      description: Span names, error tags, trace ids and short scrubbed log lines only.
+      render: shell
+
+  - type: input
+    id: related
+    attributes:
+      label: Related issues
+      description: Similar issues and why this is not a duplicate.
+
+  - type: textarea
+    id: workaround
+    attributes:
+      label: Workaround
+      description: Anything run on the machine to unblock the user.
+
+  - type: input
+    id: agent
+    attributes:
+      label: Drafted by
+      description: Which agent and model drafted this report.
+      placeholder: claude via xtend triage

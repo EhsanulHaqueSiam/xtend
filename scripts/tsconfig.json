@@ -2,7 +2,8 @@
   "extends": "../tsconfig.base.json",
   "compilerOptions": {
     "types": ["node"],
-    "lib": ["ESNext", "esnext.disposable"],
+    // page.evaluate callbacks in the scenarios run in the page.
+    "lib": ["ESNext", "esnext.disposable", "DOM"],
     "plugins": [
       {
         "name": "@effect/language-service",
@@ -12,13 +13,11 @@
           "globalRandom": "off",
           "globalTimers": "off",
           "globalConsole": "off",
-          "globalFetch": "off"
+          "globalFetch": "off",
+          "preferSchemaOverJson": "off"
         }
       }
-    ],
-    "paths": {
-      "@xtend/contracts": ["../packages/contracts/src/index.ts"]
-    }
+    ]
   },
-  "include": ["*.ts"]
+  "include": ["*.ts", "scenarios"]
 }

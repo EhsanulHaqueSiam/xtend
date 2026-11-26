@@ -15,7 +15,7 @@ import { HttpClient, HttpClientRequest } from "effect/http";
 
 import * as SettingsStore from "../settings/SettingsStore.ts";
 
-/** The worker in front of the pool (apps/pool). It alone holds the database. */
+/** The worker in front of the pool (infra/pool). It alone holds the database. */
 const POOL_URL = process.env.XTEND_POOL_URL ?? "https://xtend-pool.search-shim.workers.dev";
 /** The worker refuses larger pushes; a session batch is far smaller. */
 const MAX_ITEMS = 500;

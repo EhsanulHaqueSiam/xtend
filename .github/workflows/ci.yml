@@ -153,11 +153,8 @@ jobs:
           - shard: desktop
             run: pnpm --filter @xtend/desktop test
           - shard: rest
-            # Root scripts alone skip the build job, whose `pnpm typecheck` covers them otherwise.
             run: |
-              pnpm typecheck:scripts
               pnpm -r --filter '!xtend' --filter '!@xtend/web' --filter '!@xtend/desktop' test
-              pnpm exec vp test run --dir scripts
               node --test .github/scripts
               pnpm test:e2e
     steps:

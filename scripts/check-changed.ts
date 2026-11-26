@@ -94,7 +94,7 @@ export function planSteps(input: {
     pnpm("format", ["exec", "vp", "fmt", "--check", "--no-error-on-unmatched-pattern", ...present]);
   // A rule or config change can flag files this branch never touched, so it lints everything.
   const lint = ["exec", "vp", "lint", "--deny-warnings", "--report-unused-disable-directives"];
-  if (changed.some((f) => f === "vite.config.ts" || f.startsWith("packages/oxlint-plugin/")))
+  if (changed.some((f) => f === "vite.config.ts" || f.startsWith("oxlint-plugin-xtend/")))
     pnpm("lint (rules changed: every file)", lint);
   else if (code.length > 0) pnpm("lint", [...lint, ...code]);
   if (
@@ -122,17 +122,11 @@ export function planSteps(input: {
       { weight: workers },
     );
   }
-  // Root scripts belong to no package, and they import from several, so any of those changes too.
-  if (affected.length > 0 || changed.some((f) => f.startsWith("scripts/")))
-    pnpm("typecheck scripts", ["run", "typecheck:scripts"]);
   // .github/scripts tests run under node --test, as in `pnpm test`.
   const githubTests = [...tests].filter((file) => file.startsWith(".github/"));
   if (githubTests.length > 0)
     pnpm("test .github/scripts", ["exec", "node", "--test", ...githubTests]);
   // Vitest runs started together race on node_modules/.vitest-cache, so test steps go one at a time.
-  const rootTests = [...tests].filter((file) => file.startsWith("scripts/"));
-  if (rootTests.length > 0)
-    pnpm("test scripts", ["exec", "vp", "test", "run", ...rootTests], { serial: true });
   for (const p of packages) {
     const own = [...tests]
       .filter((file) => file.startsWith(`${p.dir}/`))

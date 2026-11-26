@@ -4,7 +4,7 @@ import * as NodePath from "node:path";
 
 import { expect, it } from "vite-plus/test";
 
-import { startFakeTreg } from "../apps/e2e/src/fakeTreg.ts";
+import { startFakeTreg } from "./scenarios/fakeTreg.ts";
 import {
   choosePorts,
   fakePortOf,

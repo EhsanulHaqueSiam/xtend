@@ -1,0 +1,4 @@
+interface:
+  display_name: "Contribution Triage"
+  short_description: "Assess Xtend issues and PRs against the repo's rules"
+  default_prompt: "Use $contribution-triage to assess this Xtend issue or pull request and draft the reply."

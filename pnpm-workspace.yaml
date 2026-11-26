@@ -1,6 +1,10 @@
 packages:
   - apps/*
   - packages/*
+  - infra/*
+  - oxlint-plugin-xtend
+  - evals
+  - scripts
 
 allowBuilds:
   # No install script since Electron 44; apps/desktop ensure:electron runs install.js.

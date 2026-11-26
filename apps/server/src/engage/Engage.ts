@@ -65,6 +65,39 @@ export interface DmsResult {
   readonly quoteUsd: number;
 }
 
+/** The angles request Engage.readPost sends; `evals/reply-angles` runs it against a real model. */
+export const readPostRequest = (input: {
+  readonly post: XPost;
+  readonly images: ReadonlyArray<string>;
+  readonly thread: ReadonlyArray<string>;
+  readonly replies: ReadonlyArray<SeenReply>;
+  readonly correction?: string | undefined;
+  /** The user's own replies that did best, their taste. */
+  readonly own: ReadonlyArray<string>;
+}) => ({
+  task: "engage.readPost",
+  instructions: `Read this X post the way a sharp friend would before replying, image and thread included.
+read: what the post is, in 2 to 4 words ("Sincere question", "Sarcastic jab", "Proud announcement", "Playful hot take", "Venting", "Asking for advice"). If correction is set, the user says the post is that: trust it.
+signals: 1 to 3 short notes on what gave it away; if there is an image, one says what it shows.
+angles: 3 or 4 replies written for this post, each a different move: no two share a point, an opening or a structure (one might add a number or a fact, one push back, one ask the sharp question, one play along), and none repeats what topReplies already say. topReplies are the replies that did best under it; topCreators the replies from its biggest accounts: write what would stand out next to them. label names what the reply does (e.g. "Answer with your number", "Push back on the premise", "Play along with the joke"), never a mood word. text is the reply, under 280 characters, in the user's voice: no flattery, no hashtags, never answer sarcasm or a joke as if it were sincere. The user's replies that did best are their taste: match their length and attitude, never their wording.
+why: one sentence on why these angles fit this author and post.`,
+  input: {
+    author: input.post.author.handle,
+    authorName: input.post.author.name,
+    text: input.post.text,
+    thread: input.thread,
+    metrics: input.post.metrics,
+    topReplies: input.replies.toSorted((a, b) => b.likes - a.likes).slice(0, 8),
+    topCreators: input.replies
+      .toSorted((a, b) => (b.followers ?? 0) - (a.followers ?? 0))
+      .slice(0, 5),
+    yourBestReplies: input.own,
+    ...(input.correction === undefined ? {} : { correction: input.correction }),
+  },
+  images: input.images,
+  output: PostRead,
+});
+
 /** Reply targets, AI reply drafts, X writes and mentions. Persistence is EngageStore. */
 export class Engage extends Context.Service<
   Engage,
@@ -231,34 +264,10 @@ const make = Effect.gen(function* () {
               .pipe(Effect.orElseSucceed(() => ({ posts: [] })))).posts,
             "replies",
           );
-    return yield* assist
-      .generate({
-        task: "engage.readPost",
-        instructions: `Read this X post the way a sharp friend would before replying, image and thread included.
-read: what the post is, in 2 to 4 words ("Sincere question", "Sarcastic jab", "Proud announcement", "Playful hot take", "Venting", "Asking for advice"). If correction is set, the user says the post is that: trust it.
-signals: 1 to 3 short notes on what gave it away; if there is an image, one says what it shows.
-angles: 3 or 4 replies written for this post, each a different move: no two share a point, an opening or a structure (one might add a number or a fact, one push back, one ask the sharp question, one play along), and none repeats what topReplies already say. topReplies are the replies that did best under it; topCreators the replies from its biggest accounts: write what would stand out next to them. label names what the reply does (e.g. "Answer with your number", "Push back on the premise", "Play along with the joke"), never a mood word. text is the reply, under 280 characters, in the user's voice: no flattery, no hashtags, never answer sarcasm or a joke as if it were sincere. The user's replies that did best are their taste: match their length and attitude, never their wording.
-why: one sentence on why these angles fit this author and post.`,
-        input: {
-          author: input.post.author.handle,
-          authorName: input.post.author.name,
-          text: input.post.text,
-          thread: input.thread,
-          metrics: input.post.metrics,
-          topReplies: replies.toSorted((a, b) => b.likes - a.likes).slice(0, 8),
-          topCreators: replies
-            .toSorted((a, b) => (b.followers ?? 0) - (a.followers ?? 0))
-            .slice(0, 5),
-          yourBestReplies: own,
-          ...(input.correction === undefined ? {} : { correction: input.correction }),
-        },
-        images: input.images,
-        output: PostRead,
-      })
-      .pipe(
-        Effect.map((r) => ({ ...r, angles: r.angles.filter((a) => a.text.length <= 280) })),
-        Effect.mapError(assistError),
-      );
+    return yield* assist.generate(readPostRequest({ ...input, replies, own })).pipe(
+      Effect.map((r) => ({ ...r, angles: r.angles.filter((a) => a.text.length <= 280) })),
+      Effect.mapError(assistError),
+    );
   });
 
   // Free first: a clicked reply goes through the user's own session while that lane is on.
