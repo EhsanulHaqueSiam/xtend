@@ -23,6 +23,12 @@ export const REFERENCE_REPOS: ReadonlyArray<ReferenceRepo> = [
     catalogKey: "effect",
     tag: (version) => `effect@${version}`,
   },
+  {
+    id: "alchemy-effect",
+    repository: "https://github.com/alchemy-run/alchemy-effect.git",
+    catalogKey: "alchemy",
+    tag: (version) => `v${version}`,
+  },
 ];
 
 /** The version pnpm-workspace.yaml's `catalog:` pins for `key`, or undefined. */

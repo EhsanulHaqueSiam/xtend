@@ -13,15 +13,35 @@ Apply the schema before deploying a worker that needs it; `-1` makes it one tran
 running worker never sees a function half replaced.
 
 Never put the connection string in the repo, the service or the desktop. It lives in the
-Hyperdrive config (`wrangler hyperdrive list`) with query caching off: `pool_register` and
-`pool_flush` are selects with side effects, and a cached select would skip them.
+Hyperdrive config (Cloudflare dashboard, or `npx wrangler hyperdrive list`) with query caching
+off: `pool_register` and `pool_flush` are selects with side effects, and a cached select would
+skip them.
 
 ## Worker
 
+The worker is deployed with alchemy (`infra/pool/alchemy.run.ts`), as T3 Code deploys its own.
+Alchemy only reads the Hyperdrive config by id; it never creates, changes or deletes it. State is
+local (`infra/pool/.alchemy/`, gitignored), so nothing but the worker exists in the account.
+Credentials: `alchemy profile` login, or `CLOUDFLARE_ACCOUNT_ID` with `CLOUDFLARE_API_TOKEN`.
+
 ```sh
-pnpm --filter @xtend/pool deploy        # wrangler, logged in to the account that owns it
-pnpm --filter @xtend/pool dev           # local, against the real Hyperdrive config
+pnpm --filter @xtend/pool plan          # what a deploy would change, applies nothing
+pnpm --filter @xtend/pool deploy        # logged in to the account that owns it
 ```
+
+The first alchemy deploy takes over the worker wrangler made. Run it once with `--adopt`, plan
+first, and read the plan before deploying:
+
+```sh
+pnpm --filter @xtend/pool exec alchemy plan --stage prod --adopt
+pnpm --filter @xtend/pool exec alchemy deploy --stage prod --adopt
+```
+
+The PoolBuffer object keeps its data: alchemy matches the `BUFFER` binding to the live class by
+name, so the class must stay `PoolBuffer`. That deploy also adds alchemy's ownership tags and
+the `new_module_registry` compatibility flag, and ships alchemy's bundle of the same code. Never
+add a `destroy` script: it would delete the live worker and its buffered pushes. After a lost
+`.alchemy/` folder, the next deploy needs `--adopt` again.
 
 | route                       | does                                                    |
 | --------------------------- | ------------------------------------------------------- |
@@ -49,8 +69,10 @@ Durable Object requests a day (one each per push or trends read).
 - `select pool_register()` and `select pool_flush('[{"install":..,"at":..,"body":{"items":[..]}}]')`
   are what the worker calls; run them by hand to test a schema change. `pool_flush` returns the
   accepted count, the pushes it dropped and the installs it did not know.
-- Local run: `CLOUDFLARE_HYPERDRIVE_LOCAL_CONNECTION_STRING_POOL=<local postgres> pnpm --filter
-  @xtend/pool dev --test-scheduled`, then `curl localhost:8787/cdn-cgi/handler/scheduled` flushes.
+- Local run: a local Postgres with the schema applied, then
+  `XTEND_POOL_DEV_URL=postgres://<user>:<pass>@127.0.0.1:<port>/<db> pnpm --filter @xtend/pool dev`
+  (logged in: dev still reads the Hyperdrive config by id), then
+  `curl "localhost:1337/cdn-cgi/handler/scheduled?cron=0+*+*+*+*"` flushes.
 - Size: `select count(*) from pool_posts`, installs: `select count(*) from pool_installs`.
 - Abuse: an install's pushes are in `pool_installs.pushes`; its rows in `pool_sightings`. Delete
   the install's sightings and metrics to remove its votes; content it was first to report stays.

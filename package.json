@@ -23,6 +23,7 @@
     "tc": "vp run -r --cache --concurrency-limit 4 typecheck",
     "check:changed": "node scripts/check-changed.ts",
     "sync:repos": "node scripts/sync-reference-repos.ts",
+    "icons": "node scripts/icons.ts",
     "engine-fixture": "node scripts/engine-fixture.ts",
     "bench": "pnpm --filter xtend --filter @xtend/desktop exec vp test bench --no-file-parallelism --reporter=verbose",
     "bench:web": "pnpm --filter @xtend/web exec vp test bench",

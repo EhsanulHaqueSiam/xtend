@@ -18,5 +18,7 @@ apps/desktop/release/
 dist-cli/
 .t3/
 .wrangler/
+# Alchemy state for infra/pool (local state: the deployed resources, never secrets).
+.alchemy/
 # Read-only reference sources (pnpm sync:repos), links into a clone shared by every worktree.
 .repos/

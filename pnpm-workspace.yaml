@@ -13,10 +13,11 @@ allowBuilds:
   electron-winstaller: false
   esbuild: true
   tsc-rs: true
-  # wrangler's runtime for the pool worker's local dev.
+  # The Workers runtime alchemy dev runs the pool worker in.
   workerd: true
 
 catalog:
+  "@alchemy.run/cloudflare": 2.0.0-beta.85
   "@effect/atom-react": 4.0.5
   "@effect/language-service": 0.51.1
   "@effect/platform-node": 4.0.5
@@ -29,6 +30,7 @@ catalog:
   "@types/react": ~19.3.0
   "@types/react-dom": ~19.3.0
   "@vitejs/plugin-react": 5.1.0
+  alchemy: 2.0.0-beta.85
   effect: 4.0.5
   electron: 44.9.3
   react: 19.3.0
@@ -39,8 +41,6 @@ catalog:
 
 minimumReleaseAgeExclude:
   - "@cloudflare/workers-types@5.20261028.1"
-  - miniflare@5.20261023.1-beta
-  - wrangler@4.154.0
 
 overrides:
   "@effect/vitest": "catalog:"
