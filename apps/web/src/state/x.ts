@@ -1020,17 +1020,18 @@ const openMenu = (at: MenuAt, mine = "true", press = false) => `
     ${at.find(mine)}
     const trigger = ${at.root}?.querySelector(${JSON.stringify(at.trigger)});
     if (!trigger || !(${mine}) || expanded(trigger)) return null;
+    const openedBefore = new Set(document.querySelectorAll('[role="menu"]'));
     trigger.click();
     clickedCarets.add(trigger);
     // A later click, including the user reopening this caret, is a different opening.
     trigger.addEventListener("click", () => clickedCarets.delete(trigger), { once: true });
-    let opened = ${mine} ? menuFor(trigger, true) : null;
+    let opened = ${mine} ? menuFor(trigger, openedBefore) : null;
     const closeMenu = () => closeOwnedMenu(trigger, opened);
     let items = [];
     for (let i = 0; i < 20 && items.length === 0; i++) {
       await new Promise((r) => setTimeout(r, 100));
       if (!(${mine}) || ${press && at.trend ? "(!opened && request !== window.__xtendMenuRequest)" : "false"}) return (closeMenu(), null);
-      opened ??= menuFor(trigger, true);
+      opened ??= menuFor(trigger, openedBefore);
       if (opened && menuFor(trigger) !== opened) return null;
       items = [...(opened?.querySelectorAll('[role="menuitem"]') ?? [])];
     }
@@ -1070,10 +1071,11 @@ const xMenuRun = (step: string, start = "") =>
       // X's reply sort trigger carries no aria-expanded: its menu is the lone one our click opened.
       const statelessMenus = window.__xtendStatelessMenus ??= new WeakMap();
       const expanded = (caret) => caret?.isConnected && (caret.hasAttribute("aria-expanded") ? caret.getAttribute("aria-expanded") === "true" : !!statelessMenus.get(caret)?.isConnected);
-      const menuFor = (caret, claim = false) => {
-        if (claim && clickedCarets.has(caret) && !caret.hasAttribute("aria-expanded") && !expanded(caret)) {
+      // openedBefore: the menus already open before our click, which a claim never takes.
+      const menuFor = (caret, openedBefore = null) => {
+        if (openedBefore && clickedCarets.has(caret) && !caret.hasAttribute("aria-expanded") && !expanded(caret)) {
           const menus = document.querySelectorAll('[role="menu"]');
-          if (menus.length === 1) statelessMenus.set(caret, menus[0]);
+          if (menus.length === 1 && !openedBefore.has(menus[0])) statelessMenus.set(caret, menus[0]);
         }
         if (!clickedCarets.has(caret) || !expanded(caret)) return null;
         if (!caret.hasAttribute("aria-expanded")) return statelessMenus.get(caret);

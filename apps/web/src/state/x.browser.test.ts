@@ -433,6 +433,20 @@ it("takes for X's sort trigger only the menu its own click opened, never one ope
     await vi.runAllTimersAsync();
     expect(await missed).toBe(false);
     await sweepLeaves();
+    // Nor a menu already open when that press opened nothing.
+    const open = drawMenu(document.createElement("button"), { Mute: () => {} });
+    document
+      .querySelector('button[aria-haspopup="menu"]')!
+      .addEventListener("click", (e) => e.stopImmediatePropagation(), {
+        capture: true,
+        once: true,
+      });
+    const ignored = xSortReplies(post42, { label: "Recent", param: "recency" }, labels);
+    await vi.runAllTimersAsync();
+    expect(await ignored).toBe(false);
+    expect(open.isConnected).toBe(true);
+    open.remove();
+    await sweepLeaves();
   } finally {
     history.replaceState(null, "", start);
   }
