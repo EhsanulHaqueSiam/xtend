@@ -1,4 +1,4 @@
-/** Xtend's mark in `currentColor`; the same drawing as `assets/icon.svg`. Render one per page: its clip ids are fixed. */
+/** Xtend's mark in `currentColor`; the same drawing as `assets/prod/icon.svg`. Render one per page: its clip ids are fixed. */
 export function XtendMark({ className }: { readonly className?: string }) {
   return (
     <svg viewBox="0 0 100 100" aria-hidden className={className}>

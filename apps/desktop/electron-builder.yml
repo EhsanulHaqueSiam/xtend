@@ -21,6 +21,8 @@ extraResources:
   - from: ../server/dist
     to: apps/server/dist
 npmRebuild: false
+# The app icon for every platform, from the brand assets (assets/README.md).
+icon: ../../assets/prod/icon.png
 mac:
   category: public.app-category.productivity
   target:
