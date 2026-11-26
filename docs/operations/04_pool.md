@@ -75,12 +75,13 @@ no pushes does not wake Neon. Logs and errors are in Workers observability.
 
 ## Free plan budget
 
-Neon's free plan gives 100 CU-hours a month and suspends compute five minutes after the last
-query, so cost is minutes awake, not rows: an hourly flush is about 24 wakes of six minutes at
-0.25 CU, about 18 CU-hours a month, whatever the traffic. Keep the compute's max size at 0.25 CU
-in Neon so a refresh cannot scale it up. Registrations, and the first push from an install the buffer has not seen, still wake Neon
-(about 0.02 CU-hours each). The ceilings that remain are Neon's 0.5 GB of storage and Cloudflare's 100,000 Worker and
-Durable Object requests a day (one each per push or trends read).
+Neon's free plan gives 100 CU-hours a month and suspends compute five minutes after the last query,
+so cost is minutes awake, not rows: an hourly flush is about 24 wakes of six minutes at 0.25 CU,
+about 18 CU-hours a month, whatever the traffic. Keep the compute's max size at 0.25 CU in Neon so a
+refresh cannot scale it up. Registrations, and the first push from an install the buffer has not
+seen, still wake Neon (about 0.02 CU-hours each). The ceilings that remain are Neon's 0.5 GB of
+storage and Cloudflare's 100,000 Worker and Durable Object requests a day (one each per push or
+trends read).
 
 ## Operating it
 
@@ -88,7 +89,8 @@ Durable Object requests a day (one each per push or trends read).
   are what the worker calls; run them by hand to test a schema change. `pool_flush` returns the
   accepted count, the pushes it dropped and the installs it did not know.
 - Local check: a local Postgres with the schema applied, then the worker on it (logged in: dev
-  still reads the Hyperdrive config by id) and one pass through every route:
+  still reads the Hyperdrive config by id) and one pass through every route. Use the URL dev
+  prints: 1337 unless another checkout holds it.
 
   ```sh
   XTEND_POOL_DEV_URL=postgres://<user>:<pass>@127.0.0.1:<port>/<db> pnpm --filter @xtend/pool dev
@@ -97,8 +99,11 @@ Durable Object requests a day (one each per push or trends read).
     "text":"hi","createdAt":"2026-01-01T00:00:00Z","author":{"userId":"2","handle":"a"}},
     "metrics":{"views":1,"likes":0,"reposts":0,"replies":0,"quotes":0,"bookmarks":0}}]}'  # 202
   curl "localhost:1337/cdn-cgi/handler/scheduled?cron=0+*+*+*+*"        # flushes
-  curl localhost:1337/trends/hot                                        # the pushed post
+  curl localhost:1337/trends/hot                    # {"posts":1,"installs":1,"rows":[]}
   ```
+
+  `rows` stays empty: a hot post needs three installs registered over a day ago. The counts show
+  the push reached Neon through the flush and the snapshot.
 
 - Size: `select count(*) from pool_posts`, installs: `select count(*) from pool_installs`.
 - Abuse: an install's pushes are in `pool_installs.pushes`; its rows in `pool_sightings`. Delete
