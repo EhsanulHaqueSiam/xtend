@@ -42,9 +42,9 @@ export const Pool = Cloudflare.Worker("Pool", {
     REGISTER: limit("REGISTER", "1001", 5),
     PUSH: limit("PUSH", "1002", 30),
     PUSH_ADDRESS: limit("PUSH_ADDRESS", "1003", 60),
-    // Pushes wait in one SQLite-backed object (free plan) until the hourly flush. The class name
-    // must stay PoolBuffer: it is how a deploy finds the live object and keeps its data.
-    BUFFER: Cloudflare.DurableObject("PoolBuffer", { className: "PoolBuffer" }),
+    // Pushes wait in one SQLite-backed object (free plan) until the hourly flush. The adopting
+    // deploy finds the live object by this binding name and class, so both must stay as they are.
+    BUFFER: Cloudflare.DurableObject("PoolBuffer"),
   },
 });
 
@@ -60,7 +60,8 @@ export default Alchemy.Stack(
   "XtendPool",
   { providers: Cloudflare.providers(), state },
   Effect.gen(function* () {
-    const pool = yield* Pool;
+    // Never deleted, even by `alchemy destroy` or a rename: it holds the buffered pushes.
+    const pool = yield* Pool.pipe(Alchemy.RemovalPolicy.retain());
     return { workerName: pool.workerName, url: pool.url };
   }),
 );

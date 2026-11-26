@@ -29,7 +29,7 @@ its secrets in a Secrets Store. `dev` keeps its state in `infra/pool/.alchemy/` 
 creates nothing in the account.
 
 ```sh
-pnpm --filter @xtend/pool run plan      # what a deploy would change, applies nothing
+pnpm --filter @xtend/pool run plan      # what a deploy would change; the first also makes the store
 pnpm --filter @xtend/pool run deploy    # logged in to the account that owns it
 ```
 
@@ -45,8 +45,10 @@ pnpm --filter @xtend/pool exec alchemy deploy --stage prod --adopt
 
 The PoolBuffer object keeps its data: alchemy matches the `BUFFER` binding to the live class by
 name, so the class must stay `PoolBuffer`. That deploy also adds alchemy's ownership tags and
-the `new_module_registry` compatibility flag, and ships alchemy's bundle of the same code. Never
-add a `destroy` script: it would delete the live worker and its buffered pushes.
+the `new_module_registry` compatibility flag, and ships alchemy's bundle of the same code, so run
+the local check under "Operating it" (register, push, flush, trends) before it. A bad deploy rolls
+back from the worker's Deployments page in the dashboard. The worker is retained: `alchemy
+destroy`, or renaming it in `alchemy.run.ts`, makes alchemy forget it, never delete it.
 
 The pool pins effect 4.1.5, which alchemy needs; the rest of the workspace is on the catalog's
 4.0.5, so `.repos/effect` shows 4.0.5's API, not the pool's.
