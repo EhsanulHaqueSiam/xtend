@@ -115,6 +115,13 @@ XTEND_REMOTE_DEBUG=<port> node apps/desktop/scripts/engine-bench.mjs --runs 3 --
 
 ## Free and paid
 
+The dev fake model answers every assist with the schema's smallest value. To see the other states
+a screen draws, switch it at the fake URL the lanes line printed, until `pnpm dev` stops:
+
+```sh
+curl -s -X POST <fake>/dev/assist -d '{"mode":"error"}'   # sample | error | invalid | slow (5s)
+```
+
 Fake-service screen tests, seeded observations and session-lane reads are free. X API calls through
 treg and model calls spend the user's balance: use them only when the change depends on that lane,
 and say what it cost. Keep the treg token, X handles' DMs and cookies out of screenshots you share.
@@ -128,6 +135,12 @@ same fixture with the same `--clock` on main's checkout (`--label before`) and o
 ## Verify and retain
 
 Open `http://localhost:5820/<route>` in the Browser panel, exercise the affected flow, and
-capture the state that proves it works with `preview_snapshot` (`save: true`). Keep the
-processes and the panel available while the user inspects. Stop only processes you started,
-by the PID you captured.
+capture the state that proves it works with `preview_snapshot` (`save: true`). Then look at the
+screenshot as the user would: layout, alignment, hierarchy, copy, the empty and error states, and
+the way back out. An element existing is not the flow working; fix what looks unfinished and look
+again before handing back. After a change to a screen's state or actions, `pnpm explore` (see
+[Testing](../../../docs/internals/07_testing.md#exploring-with-properties)) clicks through what you
+did not think to try.
+
+Keep the processes and the panel available while the user inspects. Stop only processes you
+started, by the PID you captured.

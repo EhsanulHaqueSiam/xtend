@@ -33,6 +33,7 @@
     "test:e2e": "pnpm --filter @xtend/scripts test:e2e",
     "test:engine": "pnpm --filter @xtend/scripts test:engine",
     "prove": "node scripts/prove.ts",
+    "explore": "node scripts/explore.ts",
     "mock-x": "node scripts/mock-x.ts",
     "fmt": "vp fmt",
     "fmt:check": "vp fmt --check",
