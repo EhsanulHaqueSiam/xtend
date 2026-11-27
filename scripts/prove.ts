@@ -1,7 +1,7 @@
-// Proves a fix with one scenario: its behavior check must fail against the base's app and pass
-// against this checkout's. The scenario, mock X and fake treg always come from this checkout; only
-// the app under test (service, web build, desktop) changes, through XTEND_SCENARIO_APP_DIR. The base
-// is a detached worktree of its own next to this one, at the merge base, removed afterwards.
+// Proves a fix with one scenario: it must fail against the base's app (a detached worktree at the
+// merge base, removed afterwards) and pass against this checkout's. Scenario, mock X and fake treg
+// always come from here; only the app changes, through XTEND_SCENARIO_APP_DIR. Its `shot` captures
+// land in ~/Pictures/xtend-ui, paired base and here by label.
 
 //   pnpm prove scripts/scenarios/<name>.e2e.ts [--base origin/main] [-t "<test name>"] [--keep]
 //   exit 0 proved, 1 not proved (passed on base, or failed here), 2 could not run on one side
@@ -135,7 +135,16 @@ if (import.meta.main) {
   }
 
   const reportFile = NodePath.join(NodeOS.tmpdir(), `xtend-prove-${process.pid}.json`);
-  const scenario = (appDir: string) => {
+  // Each side's `shot(page, label)` captures, outside the repo like `pnpm capture`'s.
+  const shots = NodePath.join(
+    NodeOS.homedir(),
+    "Pictures",
+    "xtend-ui",
+    (git("branch", "--show-current") || "detached").replaceAll("/", "-"),
+    `prove-${NodePath.basename(file, ".ts")}-${new Date().toISOString().replaceAll(":", "-")}`,
+  );
+  const scenario = (appDir: string, side: "base" | "here") => {
+    NodeFS.mkdirSync(NodePath.join(shots, side), { recursive: true });
     NodeFS.rmSync(reportFile, { force: true });
     const exitedClean = run(
       "pnpm",
@@ -144,7 +153,11 @@ if (import.meta.main) {
         .concat(["--reporter=default", "--reporter=json", `--outputFile.json=${reportFile}`]),
       {
         cwd: NodePath.join(root, "scripts"),
-        env: { ...process.env, XTEND_SCENARIO_APP_DIR: appDir },
+        env: {
+          ...process.env,
+          XTEND_SCENARIO_APP_DIR: appDir,
+          XTEND_SCENARIO_SHOTS: NodePath.join(shots, side),
+        },
       },
     );
     const report = NodeFS.existsSync(reportFile)
@@ -154,10 +167,23 @@ if (import.meta.main) {
     return resultOf(report, exitedClean);
   };
   console.log(`\n[prove] ${file} against the base's app (${base.slice(0, 10)}, ${values.base})`);
-  const onBase = scenario(dir);
+  const onBase = scenario(dir, "base");
   console.log(`\n[prove] ${file} against this checkout's app`);
-  const here = scenario(root);
+  const here = scenario(root, "here");
   cleanup();
+
+  const labels = new Set(
+    ["base", "here"].flatMap((side) => NodeFS.readdirSync(NodePath.join(shots, side))),
+  );
+  if (labels.size === 0) NodeFS.rmSync(shots, { recursive: true, force: true });
+  else {
+    console.log(`\n[prove] captures, base then here:`);
+    for (const label of [...labels].toSorted())
+      for (const side of ["base", "here"]) {
+        const path = NodePath.join(shots, side, label);
+        console.log(`  ${NodeFS.existsSync(path) ? path : `(no ${side} capture) ${label}`}`);
+      }
+  }
 
   const code = exitCodeOf(onBase, here);
   console.log(

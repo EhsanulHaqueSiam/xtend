@@ -58,6 +58,15 @@ const morePosts = (handle?: string) =>
     likeCount: 120 * (i + 1),
   }));
 
+/**
+ * How the fake model answers, one per assist state a screen draws: the schema's smallest value, a
+ * 500 (Assist's "model" failure), JSON the schema rejects ("decode"), or the sample after 5s.
+ * `POST /dev/assist {"mode": "<mode>"}` switches it until the fake stops.
+ */
+const ASSIST_MODES = ["sample", "error", "invalid", "slow"] as const;
+type AssistMode = (typeof ASSIST_MODES)[number];
+const isAssistMode = (v: unknown): v is AssistMode => ASSIST_MODES.some((m) => m === v);
+
 /** The pool worker's answers, empty: an install id, accepted pushes and no trends. */
 const POOL_ANSWERS: Record<string, unknown> = {
   "/register": { installId: "fake" },
@@ -151,6 +160,7 @@ export async function startFakeTreg(port = 0) {
   /** The post ids X "returned", in order, so a test checks the app against X rather than itself. */
   const posted: Array<string> = [];
   let nextPostId = 1990000000000000100n;
+  let assistMode: AssistMode = "sample";
   const server = NodeHttp.createServer(async (request, response) => {
     const { pathname } = new URL(request.url ?? "/", "http://treg");
     // XTEND_POOL_URL points here too, so nothing reads or writes the shared pool.
@@ -159,11 +169,20 @@ export async function startFakeTreg(port = 0) {
     let text = "";
     for await (const chunk of request) text += chunk;
     const parsed: unknown = text === "" ? null : JSON.parse(text);
+    if (pathname === "/dev/assist") {
+      const mode = isJson(parsed) ? parsed.mode : undefined;
+      if (!isAssistMode(mode))
+        return void response.writeHead(400).end(`mode is one of ${ASSIST_MODES.join(", ")}`);
+      assistMode = mode;
+      return void response.end(JSON.stringify({ mode }));
+    }
     // The assist endpoint (`assist_base_url` = this server): any schema gets its smallest answer.
     if (pathname.endsWith("/chat/completions")) {
+      if (assistMode === "error") return void response.writeHead(500).end();
+      if (assistMode === "slow") await new Promise((resolve) => setTimeout(resolve, 5_000));
       const format = isJson(parsed) && isJson(parsed.response_format) ? parsed.response_format : {};
       const schema = isJson(format.json_schema) ? format.json_schema.schema : {};
-      const content = JSON.stringify(sampleOf(schema));
+      const content = JSON.stringify(assistMode === "invalid" ? null : sampleOf(schema));
       response.writeHead(200, { "content-type": "application/json" });
       return void response.end(JSON.stringify({ choices: [{ message: { content } }] }));
     }

@@ -8,7 +8,7 @@ import * as NodePath from "node:path";
 import type { ObservationBatch, WsRpcGroup } from "@xtend/contracts";
 import type * as Rpc from "effect/rpc/Rpc";
 import type * as RpcGroup from "effect/rpc/RpcGroup";
-import { type Locator, chromium } from "playwright";
+import { type Locator, type Page, chromium } from "playwright";
 
 import { APP_DIR, STARTUP_FAILED } from "./appDir.ts";
 import { startFakeTreg } from "./fakeTreg.ts";
@@ -75,11 +75,26 @@ export const startApp = () =>
     return { page, treg: service.treg, rpc: service.rpc, observe: service.observe };
   });
 
-/** The service and its fake treg, each registered in `undo` before the next step can fail. */
-export async function startService(dir: string, undo: Array<() => Promise<unknown>>) {
+/**
+ * The service and its fake treg, each registered in `undo` before the next step can fail. `seed`
+ * fills the home with `pnpm dev`'s demo data first; scenarios start empty and seed what they assert.
+ */
+export async function startService(
+  dir: string,
+  undo: Array<() => Promise<unknown>>,
+  options: { readonly seed?: boolean } = {},
+) {
   const baseDir = NodePath.join(dir, "state");
   const treg = await startFakeTreg();
   undo.push(treg.close);
+  if (options.seed === true) {
+    const seeded = NodeChildProcess.spawnSync(
+      process.execPath,
+      ["scripts/seed-dev.ts", "--base-dir", baseDir, "--assist-url", treg.url],
+      { cwd: NodePath.join(APP_DIR, "apps/server"), encoding: "utf8" },
+    );
+    if (seeded.status !== 0) throw new Error(`seeding failed:\n${seeded.stderr}`);
+  }
   const port = await freePort();
   const url = `http://127.0.0.1:${port}`;
   let logs = "";
@@ -153,6 +168,17 @@ export async function startService(dir: string, undo: Array<() => Promise<unknow
 }
 
 export type App = Awaited<ReturnType<typeof startApp>>;
+
+/**
+ * @public For bug scenarios: a capture where the bug shows, before the assertion that fails on the
+ * base. Under `pnpm prove` it lands in that side's folder, pairing up by label; else a no-op.
+ */
+export async function shot(page: Page, label: string) {
+  const dir = process.env.XTEND_SCENARIO_SHOTS;
+  // Finished animations: a dialog that just opened would otherwise be captured still transparent.
+  if (dir !== undefined)
+    await page.screenshot({ path: NodePath.join(dir, `${label}.png`), animations: "disabled" });
+}
 
 /** Picks an option in the app's own dropdown (ui/select.tsx), which is no native `<select>`. */
 export async function choose(trigger: Locator, label: string) {

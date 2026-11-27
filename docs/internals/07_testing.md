@@ -83,15 +83,38 @@ login.
 - Seed through the service (`rpc` and `observe` from
   [`harness.ts`](../../scripts/scenarios/harness.ts)) or mock X's state, not by writing the
   database, so the test meets real events.
-- Assert only the behavior the bug breaks. A page or button mock X lacks is taught to mock X first,
-  from how X does it (Mobbin, the engine bench's recordings), never invented.
+- A bug's scenario is a file of its own with one test, named for the behavior it keeps
+  (`failed-post-keeps-its-text.e2e.ts`), so `prove` runs only it and a red CI line names the
+  bug. The feature journeys (`compose.e2e.ts`, `screens.engine.ts`) stay; extend them only for
+  their own flow.
+- Assert only the behavior the bug breaks, and call `shot(page, "label")` from `harness.ts` where it
+  shows, before that assertion: `prove` pairs the base's and this checkout's captures by label for
+  the PR. A page or button mock X lacks is taught to mock X first, from how X does it (Mobbin, the
+  engine bench's recordings), never invented.
 - `pnpm prove scripts/scenarios/<file> [--base origin/main] [-t "<name>"]` is the real-app proof
   for a bug a user can reproduce. It runs the scenario against the base's app (a detached worktree
   of its own beside this one, at the merge base, removed afterwards) and then against this
   checkout's. It exits `0` only when an assertion failed on the base and everything passed here,
   `1` when not, and `2` when either side could not run: a build, setup or `beforeAll` error
-  proves nothing. The scenario, mock X and fake treg always come from this checkout;
+  proves nothing. It prints the paired `shot` captures (in `~/Pictures/xtend-ui/<branch>/`),
+  ready to upload. The scenario, mock X and fake treg always come from this checkout;
   `XTEND_SCENARIO_APP_DIR` picks the app. An engine base must already have mock X, and a base from
   before the hidden desktop shows its window.
 - Scenarios cannot prove how x.com itself behaves (the engine bench does, live), visuals (captures
   do), or timing and performance (`pnpm bench`, `pnpm bench:scroll`).
+
+## Exploring with properties
+
+`pnpm explore [--time 2m]` runs [Bombadil](https://antithesishq.github.io/bombadil/) against the web
+app on a seeded service and fake treg: it clicks, types, scrolls and navigates at random, and stops
+at the first state that breaks a property in
+[`explore.spec.ts`](../../scripts/scenarios/explore.spec.ts). Scenarios check the paths someone
+thought of; this finds the ones nobody did. Run it after a change to a screen's state or actions.
+
+- Properties hold in every state: no uncaught exception, unhandled rejection, console error or HTTP
+  error; no `undefined`, `NaN` or `[object Object]` on screen; the spend meter never drops. Add one
+  when an invariant spans screens. A behavior of one flow is a scenario instead.
+- A violation prints its trace and a `bombadil browser inspect <trace>` command, which steps through
+  every state with screenshots. Turn the shortest path to it into a scenario, then fix.
+- It never leaves the app: clicks that open x.com are filtered out, and `window.confirm` answers OK,
+  since Bombadil cannot answer a native dialog. Random, so not a CI gate.
