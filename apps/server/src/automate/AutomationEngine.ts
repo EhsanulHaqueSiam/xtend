@@ -76,6 +76,7 @@ interface OwnPost {
   readonly createdAt: string;
   readonly views: number;
   readonly likes: number;
+  readonly reposts: number;
   readonly hasLink: boolean;
   readonly isReply: boolean;
 }
@@ -263,6 +264,7 @@ const make = Effect.gen(function* () {
         createdAt: p.createdAt,
         views: p.metrics.views ?? 0,
         likes: p.metrics.likes,
+        reposts: p.metrics.reposts,
         hasLink: p.hasLink,
         isReply: p.isReply,
       });
@@ -1103,7 +1105,12 @@ const make = Effect.gen(function* () {
             )
             .map((p) =>
               postSubject(
-                { ...p, views: p.metrics.views ?? 0, likes: p.metrics.likes },
+                {
+                  ...p,
+                  views: p.metrics.views ?? 0,
+                  likes: p.metrics.likes,
+                  reposts: p.metrics.reposts,
+                },
                 `own post ${p.postId} at ${p.metrics[t.metric] ?? 0} ${t.metric}`,
               ),
             );

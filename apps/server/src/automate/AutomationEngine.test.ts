@@ -303,6 +303,17 @@ describe("AutomationEngine", () => {
       expect(runs.map((r) => r.subjectId)).toEqual(["fresh"]);
       expect(liked).toEqual(["fresh"]);
       expect(runs[0]?.xId).toBe("fresh");
+      // Reposts is a threshold metric too: only the post reposted past it matches.
+      fake.timelineExtra = [
+        { ...post("shared", HOUR, 0), metrics: { ...post("x", 0, 0).metrics, reposts: 50 } },
+      ];
+      const reposts = yield* rules.upsert(
+        likeRule({
+          name: "reposted",
+          trigger: { kind: "post_crosses_threshold", metric: "reposts", threshold: 10 },
+        }),
+      );
+      expect((yield* engine.runRule(reposts.id)).map((r) => r.subjectId)).toEqual(["shared"]);
     }).pipe(Effect.provide(layerTest)),
   );
 

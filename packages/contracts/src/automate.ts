@@ -14,7 +14,7 @@ export type EngagementKind = typeof EngagementKind.Type;
 export const Trigger = Schema.Union([
   Schema.Struct({
     kind: Schema.Literal("post_crosses_threshold"),
-    metric: Schema.Literals(["views", "likes"]),
+    metric: Schema.Literals(["views", "likes", "reposts"]),
     threshold: NonNegativeInt,
   }),
   Schema.Struct({

@@ -257,6 +257,7 @@ export function RuleForm({
                 options={[
                   { value: "views", label: "views" },
                   { value: "likes", label: "likes" },
+                  { value: "reposts", label: "reposts" },
                 ]}
               />
             </Prop>
